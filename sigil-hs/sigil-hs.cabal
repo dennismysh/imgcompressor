@@ -73,11 +73,11 @@ test-suite sigil-hs-test
   main-is: Spec.hs
   other-modules:
       Gen
-      Test.Predict
-      Test.Rice
-      Test.Token
       Test.ZigZag
-      Paths_sigil_hs
+      Test.Predict
+      Test.Token
+      Test.Rice
+      Test.Pipeline
   hs-source-dirs:
       test
   default-extensions:

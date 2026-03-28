@@ -55,6 +55,13 @@ tests:
   sigil-hs-test:
     source-dirs: test
     main: Spec.hs
+    other-modules:
+      - Gen
+      - Test.ZigZag
+      - Test.Predict
+      - Test.Token
+      - Test.Rice
+      - Test.Pipeline
     dependencies:
       - sigil-hs
       - hspec >= 2.11

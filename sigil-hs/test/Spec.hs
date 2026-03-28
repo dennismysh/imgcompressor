@@ -9,6 +9,7 @@ import qualified Test.ZigZag
 import qualified Test.Predict
 import qualified Test.Token
 import qualified Test.Rice
+import qualified Test.Pipeline
 
 main :: IO ()
 main = hspec $ do
@@ -16,6 +17,7 @@ main = hspec $ do
   Test.Predict.spec
   Test.Token.spec
   Test.Rice.spec
+  Test.Pipeline.spec
   describe "Chunk" $ do
     it "CRC32 of empty is 0x00000000" $
       crc32 BS.empty `shouldBe` 0x00000000
