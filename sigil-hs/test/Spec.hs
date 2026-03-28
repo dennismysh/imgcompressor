@@ -1,4 +1,9 @@
 module Main where
 
+import Test.Hspec
+
+import qualified Test.ZigZag
+
 main :: IO ()
-main = putStrLn "Tests not yet implemented"
+main = hspec $ do
+  Test.ZigZag.spec
