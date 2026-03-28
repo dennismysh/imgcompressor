@@ -24,10 +24,13 @@ tokenize v = go 0
           in TZeroRun (fromIntegral n) : go (i + n)
       | otherwise =
           TValue (v V.! i) : go (i + 1)
-    countZerosFrom start = length $ takeWhile id
-      [ j < len && v V.! j == 0 && j - start < fromIntegral (maxBound :: Word16)
-      | j <- [start..len - 1]
-      ]
+    -- Cap at maxBound @Word16 so the run length fits in the TZeroRun field.
+    -- Runs longer than 65535 are split into multiple TZeroRun tokens.
+    countZerosFrom start =
+      min (fromIntegral (maxBound :: Word16))
+        $ V.length
+        $ V.takeWhile (== 0)
+        $ V.drop start v
 
 untokenize :: [Token] -> Vector Word16
 untokenize tokens = V.fromList $ concatMap expand tokens
