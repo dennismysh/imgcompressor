@@ -1,0 +1,115 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.39.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           sigil-hs
+version:        0.2.0.0
+synopsis:       Sigil image codec — Haskell reference implementation
+license:        MIT
+build-type:     Simple
+
+library
+  exposed-modules:
+      Sigil
+      Sigil.Core.Types
+      Sigil.Core.Error
+      Sigil.Core.Chunk
+      Sigil.Codec.Predict
+      Sigil.Codec.ZigZag
+      Sigil.Codec.Token
+      Sigil.Codec.Rice
+      Sigil.Codec.Pipeline
+      Sigil.IO.Reader
+      Sigil.IO.Writer
+      Sigil.IO.Convert
+  other-modules:
+      Paths_sigil_hs
+  hs-source-dirs:
+      src
+  default-extensions:
+      StrictData
+      OverloadedStrings
+  ghc-options: -Wall -O2
+  build-depends:
+      JuicyPixels >=3.3
+    , base >=4.17 && <5
+    , binary >=0.8
+    , bytestring >=0.11
+    , directory >=1.3
+    , filepath >=1.4
+    , text >=2.0
+    , time >=1.12
+    , vector >=0.13
+  default-language: Haskell2010
+
+executable sigil-hs
+  main-is: Main.hs
+  other-modules:
+      Paths_sigil_hs
+  hs-source-dirs:
+      app
+  default-extensions:
+      StrictData
+      OverloadedStrings
+  ghc-options: -Wall -O2
+  build-depends:
+      JuicyPixels >=3.3
+    , base >=4.17 && <5
+    , binary >=0.8
+    , bytestring >=0.11
+    , directory
+    , filepath
+    , optparse-applicative >=0.18
+    , sigil-hs
+    , text >=2.0
+    , time
+    , vector >=0.13
+  default-language: Haskell2010
+
+test-suite sigil-hs-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_sigil_hs
+  hs-source-dirs:
+      test
+  default-extensions:
+      StrictData
+      OverloadedStrings
+  ghc-options: -Wall -O2
+  build-depends:
+      QuickCheck >=2.14
+    , base >=4.17 && <5
+    , binary >=0.8
+    , bytestring >=0.11
+    , directory
+    , filepath
+    , hspec >=2.11
+    , sigil-hs
+    , text >=2.0
+    , vector >=0.13
+  default-language: Haskell2010
+
+benchmark sigil-hs-bench
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_sigil_hs
+  hs-source-dirs:
+      bench
+  default-extensions:
+      StrictData
+      OverloadedStrings
+  ghc-options: -Wall -O2
+  build-depends:
+      base >=4.17 && <5
+    , binary >=0.8
+    , bytestring >=0.11
+    , criterion >=1.6
+    , deepseq
+    , sigil-hs
+    , text >=2.0
+    , vector >=0.13
+  default-language: Haskell2010

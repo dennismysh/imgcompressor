@@ -1,0 +1,72 @@
+name: sigil-hs
+version: 0.2.0.0
+synopsis: Sigil image codec — Haskell reference implementation
+license: MIT
+
+default-extensions:
+  - StrictData
+  - OverloadedStrings
+
+ghc-options:
+  - -Wall
+  - -O2
+
+dependencies:
+  - base >= 4.17 && < 5
+  - bytestring >= 0.11
+  - vector >= 0.13
+  - binary >= 0.8
+  - text >= 2.0
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - Sigil
+    - Sigil.Core.Types
+    - Sigil.Core.Error
+    - Sigil.Core.Chunk
+    - Sigil.Codec.Predict
+    - Sigil.Codec.ZigZag
+    - Sigil.Codec.Token
+    - Sigil.Codec.Rice
+    - Sigil.Codec.Pipeline
+    - Sigil.IO.Reader
+    - Sigil.IO.Writer
+    - Sigil.IO.Convert
+  dependencies:
+    - JuicyPixels >= 3.3
+    - time >= 1.12
+    - directory >= 1.3
+    - filepath >= 1.4
+
+executables:
+  sigil-hs:
+    source-dirs: app
+    main: Main.hs
+    dependencies:
+      - sigil-hs
+      - optparse-applicative >= 0.18
+      - filepath
+      - directory
+      - time
+      - JuicyPixels >= 3.3
+
+tests:
+  sigil-hs-test:
+    source-dirs: test
+    main: Spec.hs
+    dependencies:
+      - sigil-hs
+      - hspec >= 2.11
+      - QuickCheck >= 2.14
+      - filepath
+      - directory
+
+benchmarks:
+  sigil-hs-bench:
+    source-dirs: bench
+    main: Main.hs
+    dependencies:
+      - sigil-hs
+      - criterion >= 1.6
+      - deepseq
