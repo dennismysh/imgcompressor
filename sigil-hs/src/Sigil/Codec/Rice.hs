@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE NoFieldSelectors #-}
 module Sigil.Codec.Rice
   ( BitWriter
   , BitReader
