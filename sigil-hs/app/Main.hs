@@ -3,16 +3,27 @@ module Main where
 import Options.Applicative
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
+import System.Directory (listDirectory, createDirectoryIfMissing)
+import System.FilePath ((</>), takeExtension)
+import Data.List (sortBy)
+import Data.Ord (comparing, Down(..))
+import Text.Printf (printf)
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Vector as V
+import Codec.Picture (generateImage, PixelRGB8(..), writePng)
 
 import Sigil.Core.Types
   ( Header(..), width, height, colorSpace, bitDepth, predictor, rowBytes
-  , emptyMetadata
+  , emptyMetadata, PredictorId(..)
   )
 import Sigil.IO.Convert (loadImage, saveImage)
 import Sigil.IO.Reader (readSigilFile, decodeSigilFile)
 import Sigil.IO.Writer (writeSigilFile, encodeSigilFile)
+import Sigil.Codec.Predict (predictImage)
+import Sigil.Codec.Pipeline (compress, decompress)
 
 data Command
   = Encode FilePath FilePath (Maybe String)
@@ -121,10 +132,128 @@ runVerify input = do
             exitFailure
 
 runBench :: FilePath -> Int -> Maybe FilePath -> IO ()
-runBench _ _ _ = putStrLn "bench: not yet implemented (Task 12)"
+runBench input iters Nothing = benchSingleImage input iters
+runBench _input iters (Just dir) = benchCorpus dir iters
+
+benchSingleImage :: FilePath -> Int -> IO ()
+benchSingleImage input iters = do
+  result <- loadImage input
+  case result of
+    Left err -> die (show err)
+    Right (hdr, img) -> do
+      let rawSize = rowBytes hdr * fromIntegral (height hdr)
+      putStrLn $ "Image: " ++ input ++ " ("
+        ++ show (width hdr) ++ "x" ++ show (height hdr)
+        ++ ", " ++ show (colorSpace hdr) ++ ", " ++ show (bitDepth hdr) ++ ")"
+      putStrLn $ "Raw size: " ++ show rawSize ++ " bytes"
+      putStrLn ""
+      putStrLn "Predictor       Encoded      Ratio    Encode ms    Decode ms"
+      putStrLn "--------------------------------------------------------------"
+
+      let predictors :: [(PredictorId, String)]
+          predictors = [ (PNone, "None"), (PSub, "Sub"), (PUp, "Up")
+                       , (PAverage, "Average"), (PPaeth, "Paeth")
+                       , (PGradient, "Gradient"), (PAdaptive, "Adaptive") ]
+
+      results <- mapM (\(pid, name) -> do
+        let hdr' = hdr { predictor = pid }
+        (encTime, encoded) <- benchmark iters (compress hdr' img)
+        let encSize = BS.length encoded
+        (decTime, _decoded) <- benchmark iters (decompress hdr' encoded)
+        let ratio = fromIntegral rawSize / fromIntegral encSize :: Double
+        printf "%-14s %9d %8.2fx %10.1f %12.1f\n"
+          name encSize ratio
+          (encTime * 1000) (decTime * 1000)
+        pure (name, encSize, ratio)
+        ) predictors
+
+      -- PNG comparison
+      fileSize <- BS.length <$> BS.readFile input
+      printf "\n%-14s %9d %8.2fx\n" ("PNG (file)" :: String) fileSize
+        (fromIntegral rawSize / fromIntegral fileSize :: Double)
+
+      -- Residual analysis
+      putStrLn "\nResidual analysis:"
+      putStrLn "Predictor       Mean|r|  Median|r|  Stddev|r|  Zeros"
+      putStrLn "------------------------------------------------------"
+      mapM_ (\(pid, name) -> do
+        let hdr' = hdr { predictor = pid }
+            (_, residuals) = predictImage hdr' img
+            allResiduals = V.toList $ V.concatMap (V.map (fromIntegral . abs)) residuals :: [Int]
+            sorted = sortBy compare allResiduals
+            n = length sorted
+            mean' = fromIntegral (sum allResiduals) / fromIntegral n :: Double
+            median' = if even n
+                      then fromIntegral (sorted !! (n `div` 2 - 1) + sorted !! (n `div` 2)) / 2
+                      else fromIntegral (sorted !! (n `div` 2)) :: Double
+            variance = sum (map (\x -> (fromIntegral x - mean') ^ (2 :: Int)) allResiduals) / fromIntegral n
+            stddev' = sqrt variance :: Double
+            zeros = length (filter (== 0) allResiduals)
+        printf "%-14s %8.1f %10.1f %10.1f %8d\n"
+          name mean' median' stddev' zeros
+        ) (init predictors)  -- skip adaptive for residual analysis
+
+      putStrLn ""
+      let (bestName, _, bestRatio) = head $ sortBy (comparing (\(_, _, r) -> Down r)) results
+      printf "Best: %s (%.2fx compression ratio)\n" bestName bestRatio
+
+benchmark :: Int -> a -> IO (Double, a)
+benchmark iters x = do
+  start <- getCurrentTime
+  let go 0 = pure x
+      go n = x `seq` go (n - 1)
+  result <- go iters
+  end <- getCurrentTime
+  let elapsed = realToFrac (diffUTCTime end start) / fromIntegral iters :: Double
+  pure (elapsed, result)
+
+benchCorpus :: FilePath -> Int -> IO ()
+benchCorpus dir iters = do
+  files <- listDirectory dir
+  let imageFiles = filter (\f -> takeExtension f `elem` [".png", ".jpg", ".jpeg", ".bmp"]) files
+  if null imageFiles
+    then die $ "No image files found in " ++ dir
+    else do
+      putStrLn $ "Corpus: " ++ dir ++ " (" ++ show (length imageFiles) ++ " images)"
+      mapM_ (\f -> do
+        putStrLn $ "\n" ++ replicate 60 '='
+        benchSingleImage (dir </> f) iters
+        ) imageFiles
 
 runGenerateCorpus :: FilePath -> IO ()
-runGenerateCorpus _ = putStrLn "generate-corpus: not yet implemented (Task 13)"
+runGenerateCorpus dir = do
+  createDirectoryIfMissing True dir
+
+  -- Gradient 256x256
+  let gradient = generateImage
+        (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y)
+                           (fromIntegral ((x + y) `mod` 256))) 256 256
+  writePng (dir </> "gradient_256x256.png") gradient
+  putStrLn "Generated gradient_256x256.png"
+
+  -- Flat white 100x100
+  let flat = generateImage (\_ _ -> PixelRGB8 255 255 255) 100 100
+  writePng (dir </> "flat_white_100x100.png") flat
+  putStrLn "Generated flat_white_100x100.png"
+
+  -- Noise 128x128 (deterministic via simple LCG)
+  let noise = generateImage
+        (\x y -> let seed = x * 128 + y
+                     v = fromIntegral ((seed * 1103515245 + 12345) `mod` 256)
+                 in PixelRGB8 v v v) 128 128
+  writePng (dir </> "noise_128x128.png") noise
+  putStrLn "Generated noise_128x128.png"
+
+  -- Checkerboard 64x64
+  let checker = generateImage
+        (\x y -> if (x `div` 8 + y `div` 8) `mod` 2 == 0
+                 then PixelRGB8 0 0 0
+                 else PixelRGB8 255 255 255) 64 64
+  writePng (dir </> "checkerboard_64x64.png") checker
+  putStrLn "Generated checkerboard_64x64.png"
+
+  putStrLn $ "\nCorpus written to " ++ dir
+  putStrLn "Supply photo images manually: 640x480, 1920x1080, 3840x2160, 7680x4320"
 
 die :: String -> IO ()
 die msg = hPutStrLn stderr msg >> exitFailure
