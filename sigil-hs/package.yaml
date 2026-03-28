@@ -68,6 +68,7 @@ tests:
       - QuickCheck >= 2.14
       - filepath
       - directory
+      - JuicyPixels >= 3.3
 
 benchmarks:
   sigil-hs-bench:

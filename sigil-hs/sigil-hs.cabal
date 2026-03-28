@@ -85,7 +85,8 @@ test-suite sigil-hs-test
       OverloadedStrings
   ghc-options: -Wall -O2
   build-depends:
-      QuickCheck >=2.14
+      JuicyPixels >=3.3
+    , QuickCheck >=2.14
     , base >=4.17 && <5
     , binary >=0.8
     , bytestring >=0.11

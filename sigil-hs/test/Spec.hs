@@ -9,6 +9,8 @@ import Sigil.Core.Chunk (Tag(..), Chunk(..), crc32, makeChunk, verifyChunk)
 import Sigil.IO.Writer (encodeSigilFile)
 import Sigil.IO.Reader (decodeSigilFile)
 import Sigil.Core.Types (Header(..), ColorSpace(..), BitDepth(..), PredictorId(..), emptyMetadata)
+import Sigil.IO.Convert (imageToSigil, sigilToImage)
+import Codec.Picture (generateImage, PixelRGB8(..), pixelAt, imageWidth, imageHeight)
 import Gen (arbitraryImage)
 
 import qualified Test.ZigZag
@@ -51,3 +53,17 @@ main = hspec $ do
             in case decoded of
                  Left err -> counterexample (show err) False
                  Right (hdr', _, img') -> hdr' === hdr .&&. img' === img
+
+  describe "Convert" $ do
+    it "round-trips a JuicyPixels image through Sigil types" $ do
+      let jp = generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 128) 4 4
+          (hdr, img) = imageToSigil jp
+      width hdr `shouldBe` 4
+      height hdr `shouldBe` 4
+      colorSpace hdr `shouldBe` RGB
+      let jp' = sigilToImage hdr img
+      imageWidth jp' `shouldBe` imageWidth jp
+      imageHeight jp' `shouldBe` imageHeight jp
+      let pixels = [ pixelAt jp' x y | y <- [0..3], x <- [0..3] ]
+          expected = [ pixelAt jp  x y | y <- [0..3], x <- [0..3] ]
+      pixels `shouldBe` expected
