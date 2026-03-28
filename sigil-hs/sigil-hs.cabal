@@ -72,6 +72,10 @@ test-suite sigil-hs-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Gen
+      Test.Predict
+      Test.Rice
+      Test.Token
       Test.ZigZag
       Paths_sigil_hs
   hs-source-dirs:
