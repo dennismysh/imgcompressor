@@ -1,1 +1,0 @@
-/Users/dennis/programming\ projects/imgcompressor/sigil-rs/target/debug/libsigil_decode.rlib: /Users/dennis/programming\ projects/imgcompressor/sigil-rs/src/error.rs /Users/dennis/programming\ projects/imgcompressor/sigil-rs/src/lib.rs /Users/dennis/programming\ projects/imgcompressor/sigil-rs/src/types.rs
