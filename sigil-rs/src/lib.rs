@@ -6,6 +6,7 @@ mod crc32;
 mod chunk;
 mod zigzag;
 mod token;
+mod rice;
 
 pub use types::{Header, ColorSpace, BitDepth, PredictorId};
 pub use error::SigilError;
