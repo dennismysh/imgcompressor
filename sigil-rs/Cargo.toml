@@ -1,0 +1,13 @@
+[package]
+name = "sigil-decode"
+version = "0.1.0"
+edition = "2021"
+description = "Decode-only library for Sigil (.sgl) image files"
+license = "MIT"
+
+[dependencies]
+# Zero runtime dependencies
+
+[dev-dependencies]
+proptest = "1"
+image = "0.25"
