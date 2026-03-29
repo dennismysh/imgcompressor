@@ -7,6 +7,7 @@ mod chunk;
 mod zigzag;
 mod token;
 mod rice;
+mod predict;
 
 pub use types::{Header, ColorSpace, BitDepth, PredictorId};
 pub use error::SigilError;
