@@ -17,6 +17,7 @@ dependencies:
   - vector >= 0.13
   - binary >= 0.8
   - text >= 2.0
+  - containers >= 0.6
 
 library:
   source-dirs: src
@@ -33,6 +34,7 @@ library:
     - Sigil.IO.Reader
     - Sigil.IO.Writer
     - Sigil.IO.Convert
+    - Sigil.Codec.ANS
   dependencies:
     - JuicyPixels >= 3.3
     - time >= 1.12
@@ -75,6 +77,7 @@ tests:
       - Test.Token
       - Test.Rice
       - Test.Pipeline
+      - Test.ANS
     dependencies:
       - sigil-hs
       - hspec >= 2.11

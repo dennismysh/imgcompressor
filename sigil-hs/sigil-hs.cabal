@@ -24,6 +24,7 @@ library
       Sigil.IO.Reader
       Sigil.IO.Writer
       Sigil.IO.Convert
+      Sigil.Codec.ANS
   other-modules:
       Paths_sigil_hs
   hs-source-dirs:
@@ -37,6 +38,7 @@ library
     , base >=4.17 && <5
     , binary >=0.8
     , bytestring >=0.11
+    , containers >=0.6
     , directory >=1.3
     , filepath >=1.4
     , text >=2.0
@@ -59,6 +61,7 @@ executable sigil-hs
     , base >=4.17 && <5
     , binary >=0.8
     , bytestring >=0.11
+    , containers >=0.6
     , directory
     , filepath
     , optparse-applicative >=0.18
@@ -83,6 +86,7 @@ executable sigil-server
     , base >=4.17 && <5
     , binary >=0.8
     , bytestring
+    , containers >=0.6
     , http-types
     , scotty >=0.22
     , sigil-hs
@@ -102,6 +106,7 @@ test-suite sigil-hs-test
       Test.Token
       Test.Rice
       Test.Pipeline
+      Test.ANS
   hs-source-dirs:
       test
   default-extensions:
@@ -114,6 +119,7 @@ test-suite sigil-hs-test
     , base >=4.17 && <5
     , binary >=0.8
     , bytestring >=0.11
+    , containers >=0.6
     , directory
     , filepath
     , hspec >=2.11
@@ -137,6 +143,7 @@ benchmark sigil-hs-bench
       base >=4.17 && <5
     , binary >=0.8
     , bytestring >=0.11
+    , containers >=0.6
     , criterion >=1.6
     , deepseq
     , sigil-hs
