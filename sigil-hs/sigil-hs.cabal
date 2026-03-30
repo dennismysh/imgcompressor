@@ -68,6 +68,30 @@ executable sigil-hs
     , vector >=0.13
   default-language: Haskell2010
 
+executable sigil-server
+  main-is: Main.hs
+  other-modules:
+      Paths_sigil_hs
+  hs-source-dirs:
+      server
+  default-extensions:
+      StrictData
+      OverloadedStrings
+  ghc-options: -Wall -O2
+  build-depends:
+      JuicyPixels >=3.3
+    , base >=4.17 && <5
+    , binary >=0.8
+    , bytestring
+    , http-types
+    , scotty >=0.22
+    , sigil-hs
+    , text
+    , vector >=0.13
+    , wai
+    , wai-cors
+  default-language: Haskell2010
+
 test-suite sigil-hs-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs

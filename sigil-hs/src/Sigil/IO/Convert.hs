@@ -3,6 +3,7 @@ module Sigil.IO.Convert
   , saveImage
   , imageToSigil
   , sigilToImage
+  , dynamicToSigil
   ) where
 
 import Codec.Picture

@@ -51,6 +51,19 @@ executables:
       - time
       - JuicyPixels >= 3.3
 
+  sigil-server:
+    source-dirs: server
+    main: Main.hs
+    dependencies:
+      - sigil-hs
+      - scotty >= 0.22
+      - wai-cors
+      - wai
+      - http-types
+      - bytestring
+      - JuicyPixels >= 3.3
+      - text
+
 tests:
   sigil-hs-test:
     source-dirs: test
