@@ -1,5 +1,423 @@
 <!DOCTYPE html>
-<html>
-<head><title>Sigil</title></head>
-<body><h1>Sigil Image Codec</h1><p>Demo coming soon.</p></body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sigil</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --border: #1e1e1e;
+      --text: #e8e6e3;
+      --text-dim: #6b6b6b;
+      --accent: #c4a265;
+      --accent-dim: rgba(196, 162, 101, 0.15);
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'Inter', -apple-system, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-weight: 300;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      width: 100%;
+      padding: 3rem 0 1rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    header p {
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    main {
+      width: 100%;
+      max-width: 1200px;
+      padding: 3rem 2rem;
+      flex: 1;
+    }
+
+    #drop-zone {
+      border: 1px dashed var(--border);
+      border-radius: 2px;
+      padding: 4rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    #drop-zone p { font-size: 0.85rem; color: var(--text-dim); }
+    #drop-zone .cta { color: var(--accent); font-weight: 400; }
+    #drop-zone input { display: none; }
+
+    #results { display: none; margin-top: 3rem; }
+    #results.visible { display: block; }
+
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 3rem;
+      padding: 1.5rem 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+
+    .stat { text-align: center; }
+
+    .stat-value {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .stat-value.accent { color: var(--accent); }
+
+    .stat-label {
+      margin-top: 0.4rem;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+    }
+
+    .panel-size {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+
+    .panel-body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      min-height: 300px;
+      background: #0d0d0d;
+    }
+
+    .panel-body canvas, .panel-body img {
+      max-width: 100%;
+      max-height: 500px;
+    }
+
+    .actions { margin-top: 2rem; text-align: center; }
+
+    .btn {
+      display: inline-block;
+      padding: 0.6rem 2rem;
+      font-family: var(--sans);
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: 1px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      text-decoration: none;
+    }
+
+    .btn:hover { opacity: 0.85; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      margin-left: 1rem;
+    }
+
+    .btn-ghost:hover { border-color: var(--text-dim); color: var(--text); }
+
+    #loading { display: none; text-align: center; padding: 4rem 0; }
+    #loading.visible { display: block; }
+    #loading p { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 0.05em; }
+
+    .spinner {
+      width: 24px; height: 24px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error { display: none; text-align: center; padding: 2rem; color: #c46565; font-size: 0.85rem; }
+    #error.visible { display: block; }
+
+    footer {
+      width: 100%;
+      padding: 1.5rem 0;
+      text-align: center;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 768px) {
+      .comparison { grid-template-columns: 1fr; }
+      .stats { gap: 1.5rem; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Sigil</h1>
+  <p>Lossless image compression</p>
+</header>
+
+<main>
+  <div id="drop-zone">
+    <p><span class="cta">Drop an image</span> or click to select</p>
+    <p style="margin-top: 0.5rem; font-size: 0.7rem;">PNG, JPEG, BMP</p>
+    <input type="file" id="file-input" accept="image/png,image/jpeg,image/bmp">
+  </div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Compressing...</p>
+  </div>
+
+  <div id="error"></div>
+
+  <div id="results">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="stat-dimensions">-</div>
+        <div class="stat-label">Dimensions</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-original">-</div>
+        <div class="stat-label">Original</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value accent" id="stat-compressed">-</div>
+        <div class="stat-label">Sigil</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value accent" id="stat-ratio">-</div>
+        <div class="stat-label">Ratio</div>
+      </div>
+    </div>
+
+    <div class="comparison">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Original</span>
+          <span class="panel-size" id="original-size"></span>
+        </div>
+        <div class="panel-body">
+          <img id="original-img" alt="Original">
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Decoded from .sgl</span>
+          <span class="panel-size" id="decoded-size"></span>
+        </div>
+        <div class="panel-body">
+          <canvas id="decoded-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" id="download-btn" download="image.sgl">Download .sgl</a>
+      <button class="btn btn-ghost" id="reset-btn">Compress Another</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <p>Sigil v0.2 &mdash; <a href="https://github.com/dennismysh/imgcompressor">Source</a></p>
+</footer>
+
+<script type="module">
+import init, { decode } from './sigil_wasm.js';
+
+let wasmReady = false;
+
+async function initWasm() {
+  try {
+    await init();
+    wasmReady = true;
+  } catch (e) {
+    console.warn('WASM init failed:', e);
+  }
+}
+
+initWasm();
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const loading = document.getElementById('loading');
+const error = document.getElementById('error');
+const results = document.getElementById('results');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  results.classList.remove('visible');
+  error.classList.remove('visible');
+  dropZone.style.display = '';
+  fileInput.value = '';
+});
+
+async function handleFile(file) {
+  if (!file.type.match(/^image\/(png|jpeg|bmp)/) && !file.name.match(/\.(png|jpe?g|bmp)$/i)) {
+    showError('Please select a PNG, JPEG, or BMP image.');
+    return;
+  }
+
+  dropZone.style.display = 'none';
+  error.classList.remove('visible');
+  results.classList.remove('visible');
+  loading.classList.add('visible');
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    document.getElementById('original-img').src = URL.createObjectURL(file);
+
+    const resp = await fetch('/api/encode', { method: 'POST', body: bytes });
+
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const sglBytes = new Uint8Array(await resp.arrayBuffer());
+
+    const w = resp.headers.get('X-Sigil-Width');
+    const h = resp.headers.get('X-Sigil-Height');
+    const origSize = parseInt(resp.headers.get('X-Sigil-Original-Size'));
+    const compSize = parseInt(resp.headers.get('X-Sigil-Compressed-Size'));
+    const ratio = parseFloat(resp.headers.get('X-Sigil-Ratio'));
+
+    if (wasmReady) {
+      try {
+        const result = decode(sglBytes);
+        const canvas = document.getElementById('decoded-canvas');
+        canvas.width = result.width;
+        canvas.height = result.height;
+        const ctx = canvas.getContext('2d');
+        const rgb = result.pixels;
+        const channels = result.colorSpace === 'rgba' ? 4 : 3;
+        const rgba = new Uint8ClampedArray(result.width * result.height * 4);
+        if (channels === 4) {
+          rgba.set(rgb);
+        } else {
+          for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+            rgba[j] = rgb[i]; rgba[j+1] = rgb[i+1]; rgba[j+2] = rgb[i+2]; rgba[j+3] = 255;
+          }
+        }
+        ctx.putImageData(new ImageData(rgba, result.width, result.height), 0, 0);
+      } catch (e) { console.warn('WASM decode failed:', e); }
+    }
+
+    document.getElementById('stat-dimensions').textContent = w + '\u2009\u00d7\u2009' + h;
+    document.getElementById('stat-original').textContent = formatBytes(origSize);
+    document.getElementById('stat-compressed').textContent = formatBytes(compSize);
+    document.getElementById('stat-ratio').textContent = ratio.toFixed(1) + 'x';
+    document.getElementById('original-size').textContent = formatBytes(file.size) + ' (file)';
+    document.getElementById('decoded-size').textContent = formatBytes(compSize) + ' (.sgl)';
+
+    const downloadBtn = document.getElementById('download-btn');
+    downloadBtn.download = file.name.replace(/\.[^.]+$/, '') + '.sgl';
+    downloadBtn.href = URL.createObjectURL(new Blob([sglBytes]));
+
+    loading.classList.remove('visible');
+    results.classList.add('visible');
+  } catch (e) {
+    loading.classList.remove('visible');
+    showError(e.message || 'Compression failed.');
+    dropZone.style.display = '';
+  }
+}
+
+function showError(msg) {
+  error.textContent = msg;
+  error.classList.add('visible');
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+</script>
+
+</body>
 </html>

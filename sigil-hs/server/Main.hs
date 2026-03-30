@@ -24,7 +24,20 @@ main = do
     middleware simpleCors
 
     get "/" $ do
+      setHeader "Content-Type" "text/html"
       file "static/index.html"
+
+    get "/index.html" $ do
+      setHeader "Content-Type" "text/html"
+      file "static/index.html"
+
+    get "/sigil_wasm.js" $ do
+      setHeader "Content-Type" "application/javascript"
+      file "static/sigil_wasm.js"
+
+    get "/sigil_wasm_bg.wasm" $ do
+      setHeader "Content-Type" "application/wasm"
+      file "static/sigil_wasm_bg.wasm"
 
     get "/health" $ do
       text "ok"
