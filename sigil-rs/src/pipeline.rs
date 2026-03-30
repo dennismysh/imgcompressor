@@ -1,7 +1,6 @@
 use crate::error::SigilError;
 use crate::types::{Header, PredictorId};
-use crate::rice::decode_token_stream;
-use crate::token::untokenize;
+use crate::ans::ans_decode;
 use crate::zigzag::unzigzag;
 use crate::predict::unpredict_image;
 
@@ -25,16 +24,13 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         (vec![header.predictor; num_rows], sdat_payload)
     };
 
-    // 2. Decode token stream
-    let tokens = decode_token_stream(rest, total_samples);
+    // 2. ANS decode → flat zigzagged values
+    let zigzagged = ans_decode(rest, total_samples);
 
-    // 3. Untokenize → flat zigzagged values
-    let zigzagged = untokenize(&tokens);
-
-    // 4. Unzigzag → signed residuals
+    // 3. Unzigzag → signed residuals
     let flat_residuals: Vec<i16> = zigzagged.iter().map(|&v| unzigzag(v)).collect();
 
-    // 5. Split into rows
+    // 4. Split into rows
     let mut residual_rows: Vec<Vec<i16>> = Vec::with_capacity(num_rows);
     for i in 0..num_rows {
         let start = i * row_len;
@@ -45,7 +41,7 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         residual_rows.push(flat_residuals[start..end].to_vec());
     }
 
-    // 6. Unpredict → raw pixels
+    // 5. Unpredict → raw pixels
     let pixels = unpredict_image(header, &pids, &residual_rows);
 
     Ok(pixels)
