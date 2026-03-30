@@ -30,7 +30,7 @@ decodeSigilFile input = case runGetOrFail parser input of
         else do
           major <- getWord8
           minor <- getWord8
-          if major /= 0 || minor /= 2
+          if major /= 0 || minor /= 3
             then pure $ Left (UnsupportedVersion major minor)
             else do
               chunks <- readChunks

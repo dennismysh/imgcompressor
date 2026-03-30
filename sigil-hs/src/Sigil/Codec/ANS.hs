@@ -53,14 +53,34 @@ normalizeFreqs ft
           -- Scale proportionally, giving at least 1 to each
           scaled = Map.map (\c ->
             max 1 (round (fromIntegral c / total * tSize))) ft
-          -- Find the most frequent symbol to adjust
           curSum = sum (Map.elems scaled)
           diff = fromIntegral tableSize - fromIntegral curSum :: Int
-          maxSym = fst $ Map.foldlWithKey'
+      in applyDiff diff scaled
+
+-- | Distribute 'diff' units across a NormFreqTable, keeping every frequency >= 1.
+--   Positive diff: add to the highest-frequency symbol.
+--   Negative diff: subtract from the highest-frequency symbols (each can donate
+--   at most (freq - 1) units), iterating until diff is zero.
+applyDiff :: Int -> NormFreqTable -> NormFreqTable
+applyDiff 0 m = m
+applyDiff d m
+  | d > 0 =
+      let maxSym = fst $ Map.foldlWithKey'
             (\(bestS, bestF) s f -> if f > bestF then (s, f) else (bestS, bestF))
-            (0, 0) scaled
-          adjusted = Map.adjust (\f -> fromIntegral (fromIntegral f + diff :: Int)) maxSym scaled
-      in adjusted
+            (0, 0) m
+      in Map.adjust (+ fromIntegral d) maxSym m
+  | otherwise =
+      -- d < 0: subtract from the most-frequent symbol, up to (freq-1) units
+      let (maxSym, maxFreq) = Map.foldlWithKey'
+            (\(bestS, bestF) s f -> if f > bestF then (s, f) else (bestS, bestF))
+            (0, 0) m
+          canTake = fromIntegral maxFreq - 1  -- can donate at most (freq-1) to keep >= 1
+          toTake  = min canTake (abs d)
+          m'      = Map.adjust (\f -> f - fromIntegral toTake) maxSym m
+          d'      = d + toTake
+      in if toTake == 0
+         then m  -- stuck (all freqs are 1), shouldn't happen with valid input
+         else applyDiff d' m'
 
 -- | Build cumulative frequencies from a normalized frequency table.
 --   Sorted by symbol: cumFreq[s] = sum of normFreq for all symbols < s.
