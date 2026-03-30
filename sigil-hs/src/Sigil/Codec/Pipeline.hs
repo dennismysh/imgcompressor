@@ -9,6 +9,7 @@ import Prelude hiding (id, (.))
 import Control.Category (Category(..), (>>>))
 import qualified Data.Function as F
 
+import Data.Bits ((.&.), shiftR, shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int16)
@@ -106,8 +107,9 @@ encodeTokenStream tokens =
       ks        = Prelude.map optimalK blocks
       numBlocks = Prelude.length ks
       w0 = newBitWriter
-      -- numBlocks as 16 bits
-      w1 = writeBits 16 (fromIntegral numBlocks :: Word16) w0
+      -- numBlocks as 32 bits (two 16-bit halves, MSB first)
+      w1a = writeBits 16 (fromIntegral (numBlocks `shiftR` 16) :: Word16) w0
+      w1 = writeBits 16 (fromIntegral (numBlocks .&. 0xFFFF) :: Word16) w1a
       -- k values (4 bits each)
       w2 = Prelude.foldl (\w k -> writeBits 4 (fromIntegral k) w) w1 ks
       -- token bitstream: each TValue encoded with its block's k
@@ -149,8 +151,10 @@ takeBlock budget (t@(TValue _) : rest) =
 decodeTokenStream :: ByteString -> Int -> [Token]
 decodeTokenStream bs totalSamples =
   let r0 = newBitReader bs
-      (numBlocksW, r1) = readBits 16 r0
-      numBlocks        = fromIntegral numBlocksW :: Int
+      -- numBlocks as 32 bits (two 16-bit halves, MSB first)
+      (hi, r0a)        = readBits 16 r0
+      (lo, r1)         = readBits 16 r0a
+      numBlocks        = (fromIntegral hi `shiftL` 16) .|. fromIntegral lo :: Int
       (ks, r2)         = readKs numBlocks r1
   in decodeSamples totalSamples ks 0 r2
 

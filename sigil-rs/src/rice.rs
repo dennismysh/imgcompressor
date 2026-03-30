@@ -48,7 +48,7 @@ pub fn rice_decode(k: u8, reader: &mut BitReader) -> u16 {
 
 /// Decode the full token stream from an SDAT bitstream.
 ///
-/// Format: [16-bit numBlocks] [4-bit k per block] [token bitstream]
+/// Format: [32-bit numBlocks (two 16-bit halves)] [4-bit k per block] [token bitstream]
 /// Token bitstream: 1-bit flag per token.
 ///   Flag 1 = TValue (Rice-decoded with current block's k)
 ///   Flag 0 = TZeroRun (16-bit run length)
@@ -59,8 +59,10 @@ pub fn rice_decode(k: u8, reader: &mut BitReader) -> u16 {
 pub fn decode_token_stream(data: &[u8], total_samples: usize) -> Vec<Token> {
     let mut reader = BitReader::new(data);
 
-    // Read number of blocks
-    let num_blocks = reader.read_bits(16) as usize;
+    // Read number of blocks (32 bits as two 16-bit halves, MSB first)
+    let hi = reader.read_bits(16) as usize;
+    let lo = reader.read_bits(16) as usize;
+    let num_blocks = (hi << 16) | lo;
 
     // Read k values (4 bits each)
     let mut ks: Vec<u8> = Vec::with_capacity(num_blocks);
