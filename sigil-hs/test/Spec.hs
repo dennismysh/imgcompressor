@@ -19,6 +19,8 @@ import qualified Test.Token
 import qualified Test.Rice
 import qualified Test.Pipeline
 import qualified Test.ANS
+import qualified Test.Wavelet
+import qualified Test.ColorTransform
 import qualified Test.Conformance
 
 main :: IO ()
@@ -29,6 +31,8 @@ main = hspec $ do
   Test.Rice.spec
   Test.Pipeline.spec
   Test.ANS.spec
+  Test.Wavelet.spec
+  Test.ColorTransform.spec
   Test.Conformance.spec
   describe "Chunk" $ do
     it "CRC32 of empty is 0x00000000" $

@@ -36,6 +36,8 @@ library:
     - Sigil.IO.Writer
     - Sigil.IO.Convert
     - Sigil.Codec.ANS
+    - Sigil.Codec.ColorTransform
+    - Sigil.Codec.Wavelet
   dependencies:
     - JuicyPixels >= 3.3
     - time >= 1.12
@@ -79,6 +81,8 @@ tests:
       - Test.Rice
       - Test.Pipeline
       - Test.ANS
+      - Test.Wavelet
+      - Test.ColorTransform
     dependencies:
       - sigil-hs
       - hspec >= 2.11

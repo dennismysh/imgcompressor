@@ -25,6 +25,8 @@ library
       Sigil.IO.Writer
       Sigil.IO.Convert
       Sigil.Codec.ANS
+      Sigil.Codec.ColorTransform
+      Sigil.Codec.Wavelet
   other-modules:
       Paths_sigil_hs
   hs-source-dirs:
@@ -110,6 +112,8 @@ test-suite sigil-hs-test
       Test.Rice
       Test.Pipeline
       Test.ANS
+      Test.Wavelet
+      Test.ColorTransform
   hs-source-dirs:
       test
   default-extensions:
