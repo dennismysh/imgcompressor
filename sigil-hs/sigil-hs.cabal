@@ -44,6 +44,7 @@ library
     , text >=2.0
     , time >=1.12
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
 
 executable sigil-hs
@@ -69,6 +70,7 @@ executable sigil-hs
     , text >=2.0
     , time
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
 
 executable sigil-server
@@ -94,6 +96,7 @@ executable sigil-server
     , vector >=0.13
     , wai
     , wai-cors
+    , zlib >=0.6
   default-language: Haskell2010
 
 test-suite sigil-hs-test
@@ -126,6 +129,7 @@ test-suite sigil-hs-test
     , sigil-hs
     , text >=2.0
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
 
 benchmark sigil-hs-bench
@@ -149,4 +153,5 @@ benchmark sigil-hs-bench
     , sigil-hs
     , text >=2.0
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
