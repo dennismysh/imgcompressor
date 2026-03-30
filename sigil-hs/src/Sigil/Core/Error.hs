@@ -10,6 +10,7 @@ data SigilError
   | UnsupportedVersion Word8 Word8
   | CrcMismatch { expected :: Word32, actual :: Word32 }
   | InvalidPredictor Word8
+  | InvalidCompressionMethod Word8
   | TruncatedInput
   | InvalidDimensions Word32 Word32
   | InvalidColorSpace Word8

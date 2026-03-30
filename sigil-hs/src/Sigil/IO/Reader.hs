@@ -30,7 +30,7 @@ decodeSigilFile input = case runGetOrFail parser input of
         else do
           major <- getWord8
           minor <- getWord8
-          if major /= 0 || minor /= 4
+          if major /= 0 || (minor /= 4 && minor /= 5)
             then pure $ Left (UnsupportedVersion major minor)
             else do
               chunks <- readChunks
@@ -83,13 +83,13 @@ decodeHeader bs = case runGetOrFail parser (BL.fromStrict bs) of
       h <- getWord32be
       cs <- getWord8
       bd <- getWord8
-      p  <- getWord8
+      cm <- getWord8
       pure $ do
         colorSp <- toColorSpace cs
         bitD    <- toBitDepth bd
-        pred'   <- toPredictorId p
+        compM   <- toCompressionMethod cm
         when' (w == 0 || h == 0) $ Left (InvalidDimensions w h)
-        Right (Header w h colorSp bitD pred')
+        Right (Header w h colorSp bitD compM)
 
     toColorSpace :: Word8 -> Either SigilError ColorSpace
     toColorSpace 0 = Right Grayscale
@@ -103,10 +103,10 @@ decodeHeader bs = case runGetOrFail parser (BL.fromStrict bs) of
     toBitDepth 16 = Right Depth16
     toBitDepth n  = Left (InvalidBitDepth n)
 
-    toPredictorId :: Word8 -> Either SigilError PredictorId
-    toPredictorId n
-      | n <= fromIntegral (fromEnum (maxBound :: PredictorId)) = Right (toEnum (fromIntegral n))
-      | otherwise = Left (InvalidPredictor n)
+    toCompressionMethod :: Word8 -> Either SigilError CompressionMethod
+    toCompressionMethod b = case compressionMethodFromByte b of
+      Just cm -> Right cm
+      Nothing -> Left (InvalidCompressionMethod b)
 
     when' False _ = Right ()
     when' True e  = e

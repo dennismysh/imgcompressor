@@ -62,16 +62,15 @@ unpredictRow pid prevRow residuals ch =
           x = fromIntegral (fromIntegral predicted + (residuals V.! i) :: Int16) :: Word8
       in (x, (i + 1, V.snoc built x))
 
-predictImage :: Header -> Image -> (Vector PredictorId, Vector (Vector Int16))
-predictImage hdr img
-  | predictor hdr == PAdaptive =
+predictImage :: PredictorId -> Header -> Image -> (Vector PredictorId, Vector (Vector Int16))
+predictImage pid hdr img
+  | pid == PAdaptive =
       let results = V.imap (\i row ->
             let prev = if i == 0 then zeroRow else img V.! (i - 1)
             in adaptiveRow prev row ch) img
       in (V.map fst results, V.map snd results)
   | otherwise =
-      let pid = predictor hdr
-          residuals = V.imap (\i row ->
+      let residuals = V.imap (\i row ->
             let prev = if i == 0 then zeroRow else img V.! (i - 1)
             in predictRow pid prev row ch) img
       in (V.replicate (V.length img) pid, residuals)

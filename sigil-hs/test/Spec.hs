@@ -8,7 +8,7 @@ import Data.Word (Word32)
 import Sigil.Core.Chunk (Tag(..), Chunk(..), crc32, makeChunk, verifyChunk)
 import Sigil.IO.Writer (encodeSigilFile)
 import Sigil.IO.Reader (decodeSigilFile)
-import Sigil.Core.Types (Header(..), ColorSpace(..), BitDepth(..), PredictorId(..), emptyMetadata)
+import Sigil.Core.Types (Header(..), ColorSpace(..), BitDepth(..), CompressionMethod(..), emptyMetadata)
 import Sigil.IO.Convert (imageToSigil, sigilToImage)
 import Codec.Picture (generateImage, PixelRGB8(..), pixelAt, imageWidth, imageHeight)
 import Gen (arbitraryImage)
@@ -55,7 +55,7 @@ main = hspec $ do
       forAll (choose (1, 8 :: Word32)) $ \w ->
         forAll (choose (1, 8 :: Word32)) $ \h ->
           forAll (arbitraryImage w h 3) $ \img ->
-            let hdr = Header w h RGB Depth8 PAdaptive
+            let hdr = Header w h RGB Depth8 DwtLossless
                 encoded = encodeSigilFile hdr emptyMetadata img
                 decoded = decodeSigilFile encoded
             in case decoded of

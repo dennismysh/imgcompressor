@@ -13,7 +13,7 @@ import Sigil.Codec.Predict
   , predictImage, unpredictImage
   , adaptiveRow
   )
-import Sigil.Core.Types
+import Sigil.Core.Types (Header(..), ColorSpace(..), BitDepth(..), CompressionMethod(..), PredictorId(..))
 import Gen (arbitraryFixedPredictor, arbitraryImage)
 
 spec :: Spec
@@ -56,8 +56,8 @@ spec = describe "Predict" $ do
         forAll (choose (1, 8)) $ \w ->
           forAll (choose (1, 8)) $ \h ->
             forAll (arbitraryImage w h 3) $ \img ->
-              let hdr = Header w h RGB Depth8 pid
-                  (pids, residuals) = predictImage hdr img
+              let hdr = Header w h RGB Depth8 DwtLossless
+                  (pids, residuals) = predictImage pid hdr img
                   recovered = unpredictImage hdr (pids, residuals)
               in recovered == img
 

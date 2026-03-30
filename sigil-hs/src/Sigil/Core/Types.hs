@@ -2,6 +2,9 @@ module Sigil.Core.Types
   ( ColorSpace(..)
   , BitDepth(..)
   , PredictorId(..)
+  , CompressionMethod(..)
+  , compressionMethodFromByte
+  , compressionMethodToByte
   , Header(..)
   , Row
   , Image
@@ -45,12 +48,26 @@ data PredictorId
   | PAdaptive       -- ^ 6: per-row optimal
   deriving (Eq, Show, Enum, Bounded)
 
+data CompressionMethod
+  = Legacy        -- ^ 0: old predict+zigzag (not produced by v0.5 encoder)
+  | DwtLossless   -- ^ 1: integer 5/3 wavelet + zlib
+  deriving (Eq, Show, Enum, Bounded)
+
+compressionMethodFromByte :: Word8 -> Maybe CompressionMethod
+compressionMethodFromByte 0 = Just Legacy
+compressionMethodFromByte 1 = Just DwtLossless
+compressionMethodFromByte _ = Nothing
+
+compressionMethodToByte :: CompressionMethod -> Word8
+compressionMethodToByte Legacy       = 0
+compressionMethodToByte DwtLossless  = 1
+
 data Header = Header
-  { width      :: Word32
-  , height     :: Word32
-  , colorSpace :: ColorSpace
-  , bitDepth   :: BitDepth
-  , predictor  :: PredictorId
+  { width             :: Word32
+  , height            :: Word32
+  , colorSpace        :: ColorSpace
+  , bitDepth          :: BitDepth
+  , compressionMethod :: CompressionMethod
   } deriving (Eq, Show)
 
 data Metadata = Metadata

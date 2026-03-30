@@ -16,17 +16,16 @@ import qualified Data.Vector as V
 import Codec.Picture (generateImage, PixelRGB8(..), writePng)
 
 import Sigil.Core.Types
-  ( Header(..), width, height, colorSpace, bitDepth, predictor, rowBytes
-  , emptyMetadata, PredictorId(..)
+  ( Header(..), width, height, colorSpace, bitDepth, compressionMethod, rowBytes
+  , emptyMetadata, CompressionMethod(..)
   )
 import Sigil.IO.Convert (loadImage, saveImage)
 import Sigil.IO.Reader (readSigilFile, decodeSigilFile)
 import Sigil.IO.Writer (writeSigilFile, encodeSigilFile)
-import Sigil.Codec.Predict (predictImage)
 import Sigil.Codec.Pipeline (compress, decompress)
 
 data Command
-  = Encode FilePath FilePath (Maybe String)
+  = Encode FilePath FilePath
   | Decode FilePath FilePath
   | Info FilePath
   | Verify FilePath
@@ -47,7 +46,6 @@ encodeCmd :: Parser Command
 encodeCmd = Encode
   <$> argument str (metavar "INPUT")
   <*> strOption (short 'o' <> long "output" <> metavar "OUTPUT")
-  <*> optional (strOption (long "predictor" <> metavar "PREDICTOR"))
 
 decodeCmd :: Parser Command
 decodeCmd = Decode
@@ -75,15 +73,15 @@ main = do
   cmd <- execParser (info (commandParser <**> helper)
     (fullDesc <> progDesc "Sigil image codec — Haskell reference" <> header "sigil-hs"))
   case cmd of
-    Encode input output mPred -> runEncode input output mPred
+    Encode input output       -> runEncode input output
     Decode input output       -> runDecode input output
     Info input                -> runInfo input
     Verify input              -> runVerify input
     Bench input iters mDir    -> runBench input iters mDir
     GenerateCorpus dir        -> runGenerateCorpus dir
 
-runEncode :: FilePath -> FilePath -> Maybe String -> IO ()
-runEncode input output _mPred = do
+runEncode :: FilePath -> FilePath -> IO ()
+runEncode input output = do
   result <- loadImage input
   case result of
     Left err -> die (show err)
@@ -110,7 +108,7 @@ runInfo input = do
       putStrLn $ "Dimensions: " ++ show (width hdr) ++ "x" ++ show (height hdr)
       putStrLn $ "Color space: " ++ show (colorSpace hdr)
       putStrLn $ "Bit depth: " ++ show (bitDepth hdr)
-      putStrLn $ "Predictor: " ++ show (predictor hdr)
+      putStrLn $ "Compression: " ++ show (compressionMethod hdr)
       putStrLn $ "Raw size: " ++ show (rowBytes hdr * fromIntegral (height hdr)) ++ " bytes"
       _ <- pure meta  -- suppress unused warning
       pure ()
@@ -147,55 +145,21 @@ benchSingleImage input iters = do
         ++ ", " ++ show (colorSpace hdr) ++ ", " ++ show (bitDepth hdr) ++ ")"
       putStrLn $ "Raw size: " ++ show rawSize ++ " bytes"
       putStrLn ""
-      putStrLn "Predictor       Encoded      Ratio    Encode ms    Decode ms"
+      putStrLn "Method          Encoded      Ratio    Encode ms    Decode ms"
       putStrLn "--------------------------------------------------------------"
 
-      let predictors :: [(PredictorId, String)]
-          predictors = [ (PNone, "None"), (PSub, "Sub"), (PUp, "Up")
-                       , (PAverage, "Average"), (PPaeth, "Paeth")
-                       , (PGradient, "Gradient"), (PAdaptive, "Adaptive") ]
-
-      results <- mapM (\(pid, name) -> do
-        let hdr' = hdr { predictor = pid }
-        (encTime, encoded) <- benchmark iters (compress hdr' img)
-        let encSize = BS.length encoded
-        (decTime, _decoded) <- benchmark iters (decompress hdr' encoded)
-        let ratio = fromIntegral rawSize / fromIntegral encSize :: Double
-        printf "%-14s %9d %8.2fx %10.1f %12.1f\n"
-          name encSize ratio
-          (encTime * 1000) (decTime * 1000)
-        pure (name, encSize, ratio)
-        ) predictors
+      (encTime, encoded) <- benchmark iters (compress hdr img)
+      let encSize = BS.length encoded
+      (decTime, _decoded) <- benchmark iters (decompress hdr encoded)
+      let ratio = fromIntegral rawSize / fromIntegral encSize :: Double
+      printf "%-14s %9d %8.2fx %10.1f %12.1f\n"
+        ("DWT+RCT" :: String) encSize ratio
+        (encTime * 1000) (decTime * 1000)
 
       -- PNG comparison
       fileSize <- BS.length <$> BS.readFile input
       printf "\n%-14s %9d %8.2fx\n" ("PNG (file)" :: String) fileSize
         (fromIntegral rawSize / fromIntegral fileSize :: Double)
-
-      -- Residual analysis
-      putStrLn "\nResidual analysis:"
-      putStrLn "Predictor       Mean|r|  Median|r|  Stddev|r|  Zeros"
-      putStrLn "------------------------------------------------------"
-      mapM_ (\(pid, name) -> do
-        let hdr' = hdr { predictor = pid }
-            (_, residuals) = predictImage hdr' img
-            allResiduals = V.toList $ V.concatMap (V.map (fromIntegral . abs)) residuals :: [Int]
-            sorted = sortBy compare allResiduals
-            n = length sorted
-            mean' = fromIntegral (sum allResiduals) / fromIntegral n :: Double
-            median' = if even n
-                      then fromIntegral (sorted !! (n `div` 2 - 1) + sorted !! (n `div` 2)) / 2
-                      else fromIntegral (sorted !! (n `div` 2)) :: Double
-            variance = sum (map (\x -> (fromIntegral x - mean') ^ (2 :: Int)) allResiduals) / fromIntegral n
-            stddev' = sqrt variance :: Double
-            zeros = length (filter (== 0) allResiduals)
-        printf "%-14s %8.1f %10.1f %10.1f %8d\n"
-          name mean' median' stddev' zeros
-        ) (init predictors)  -- skip adaptive for residual analysis
-
-      putStrLn ""
-      let (bestName, _, bestRatio) = head $ sortBy (comparing (\(_, _, r) -> Down r)) results
-      printf "Best: %s (%.2fx compression ratio)\n" bestName bestRatio
 
 benchmark :: Int -> a -> IO (Double, a)
 benchmark iters x = do

@@ -83,6 +83,7 @@ tests:
       - Test.ANS
       - Test.Wavelet
       - Test.ColorTransform
+      - Test.Conformance
     dependencies:
       - sigil-hs
       - hspec >= 2.11

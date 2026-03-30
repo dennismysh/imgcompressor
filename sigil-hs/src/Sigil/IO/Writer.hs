@@ -20,7 +20,7 @@ magic = BS.pack [0x89, 0x53, 0x47, 0x4C, 0x0D, 0x0A]
 
 versionMajor, versionMinor :: Word8
 versionMajor = 0
-versionMinor = 4
+versionMinor = 5
 
 encodeSigilFile :: Header -> Metadata -> Image -> BL.ByteString
 encodeSigilFile hdr meta img = runPut $ do
@@ -48,7 +48,7 @@ encodeHeader hdr = BL.toStrict $ runPut $ do
   putWord32be (height hdr)
   putWord8 (fromIntegral $ fromEnum $ colorSpace hdr)
   putWord8 (case bitDepth hdr of Depth8 -> 8; Depth16 -> 16)
-  putWord8 (fromIntegral $ fromEnum $ predictor hdr)
+  putWord8 (compressionMethodToByte (compressionMethod hdr))
 
 encodeMetadata :: Metadata -> ByteString
 encodeMetadata (Metadata entries) = BL.toStrict $ runPut $

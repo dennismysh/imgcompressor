@@ -114,6 +114,7 @@ test-suite sigil-hs-test
       Test.ANS
       Test.Wavelet
       Test.ColorTransform
+      Test.Conformance
   hs-source-dirs:
       test
   default-extensions:

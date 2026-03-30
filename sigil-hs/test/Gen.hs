@@ -11,7 +11,7 @@ import Data.Word (Word8, Word32)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Sigil.Core.Types (PredictorId(..), Header(..), ColorSpace(..), BitDepth(..), Image, Row)
+import Sigil.Core.Types (PredictorId(..), Image, Row)
 
 arbitraryPixel :: Gen Word8
 arbitraryPixel = arbitrary

@@ -54,9 +54,10 @@ makeCheckerboard w h = V.fromList
 
 -- NFData instances for benchmarking
 instance NFData PredictorId where rnf x = x `seq` ()
+instance NFData CompressionMethod where rnf x = x `seq` ()
 instance NFData BitDepth where rnf x = x `seq` ()
 instance NFData ColorSpace where rnf x = x `seq` ()
-instance NFData Header where rnf (Header w h cs bd p) = rnf w `seq` rnf h `seq` rnf cs `seq` rnf bd `seq` rnf p
+instance NFData Header where rnf (Header w h cs bd cm) = rnf w `seq` rnf h `seq` rnf cs `seq` rnf bd `seq` rnf cm
 instance NFData SigilError where rnf x = x `seq` ()
 instance NFData Token where rnf x = x `seq` ()
 
@@ -70,8 +71,8 @@ main = do
         [ bgroup (show pid) $
             [ bench (show w ++ "x" ++ show h) $
                 let img = makeGradient w h
-                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 pid
-                in nf (predictImage hdr) img
+                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
+                in nf (predictImage pid hdr) img
             | (w, h) <- sizes
             ]
         | pid <- pids
@@ -102,14 +103,14 @@ main = do
         [ bgroup "encode" $
             [ bench (show w ++ "x" ++ show h) $
                 let img = makeGradient w h
-                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 PAdaptive
+                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
                 in nf (compress hdr) img
             | (w, h) <- sizes
             ]
         , bgroup "decode" $
             [ bench (show w ++ "x" ++ show h) $
                 let img = makeGradient w h
-                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 PAdaptive
+                    hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
                     encoded = compress hdr img
                 in nf (decompress hdr) encoded
             | (w, h) <- sizes
