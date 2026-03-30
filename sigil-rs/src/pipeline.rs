@@ -1,16 +1,17 @@
 use crate::error::SigilError;
 use crate::types::{Header, PredictorId};
-use crate::ans::ans_decode;
 use crate::zigzag::unzigzag;
 use crate::predict::unpredict_image;
+use flate2::read::ZlibDecoder;
+use std::io::Read;
 
 /// Decompress an SDAT payload into raw pixel data.
 pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, SigilError> {
     let num_rows = header.height as usize;
     let row_len = header.row_bytes();
-    let total_samples = num_rows * row_len;
+    let _total_samples = num_rows * row_len;
 
-    // 1. Read predictor IDs (1 byte each if adaptive, otherwise all same)
+    // 1. Read predictor IDs
     let (pids, rest) = if header.predictor == PredictorId::Adaptive {
         if sdat_payload.len() < num_rows {
             return Err(SigilError::TruncatedInput);
@@ -24,13 +25,21 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         (vec![header.predictor; num_rows], sdat_payload)
     };
 
-    // 2. ANS decode → flat zigzagged values
-    let zigzagged = ans_decode(rest, total_samples);
+    // 2. Zlib decompress
+    let mut decoder = ZlibDecoder::new(rest);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)
+        .map_err(|_| SigilError::TruncatedInput)?;
 
-    // 3. Unzigzag → signed residuals
+    // 3. Unpack big-endian Word16 values
+    let zigzagged: Vec<u16> = decompressed.chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .collect();
+
+    // 4. Unzigzag
     let flat_residuals: Vec<i16> = zigzagged.iter().map(|&v| unzigzag(v)).collect();
 
-    // 4. Split into rows
+    // 5. Split into rows
     let mut residual_rows: Vec<Vec<i16>> = Vec::with_capacity(num_rows);
     for i in 0..num_rows {
         let start = i * row_len;
@@ -41,8 +50,7 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         residual_rows.push(flat_residuals[start..end].to_vec());
     }
 
-    // 5. Unpredict → raw pixels
+    // 6. Unpredict
     let pixels = unpredict_image(header, &pids, &residual_rows);
-
     Ok(pixels)
 }

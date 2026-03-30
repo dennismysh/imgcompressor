@@ -37,7 +37,7 @@ pub fn read_header(data: &[u8]) -> Result<Header, SigilError> {
     // Validate version
     let major = data[6];
     let minor = data[7];
-    if major != 0 || minor != 3 {
+    if major != 0 || minor != 4 {
         return Err(SigilError::UnsupportedVersion { major, minor });
     }
 

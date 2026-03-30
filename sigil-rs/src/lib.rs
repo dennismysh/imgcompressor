@@ -14,7 +14,6 @@ mod chunk;
 mod zigzag;
 mod token;
 mod rice;
-mod ans;
 mod predict;
 mod pipeline;
 mod reader;

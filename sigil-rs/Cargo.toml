@@ -6,7 +6,7 @@ description = "Decode-only library for Sigil (.sgl) image files"
 license = "MIT"
 
 [dependencies]
-# Zero runtime dependencies
+flate2 = "1"
 
 [dev-dependencies]
 proptest = "1"
