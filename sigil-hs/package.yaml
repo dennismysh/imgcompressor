@@ -38,6 +38,7 @@ library:
     - Sigil.Codec.ANS
     - Sigil.Codec.ColorTransform
     - Sigil.Codec.Wavelet
+    - Sigil.Codec.Serialize
   dependencies:
     - JuicyPixels >= 3.3
     - time >= 1.12
@@ -85,6 +86,7 @@ tests:
       - Test.Wavelet
       - Test.ColorTransform
       - Test.Conformance
+      - Test.Serialize
     dependencies:
       - sigil-hs
       - hspec >= 2.11
