@@ -21,16 +21,78 @@ import Codec.Picture
   )
 import qualified Codec.Picture as JP
 import qualified Data.Vector as V
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
+import Data.Char (toLower)
+import System.FilePath (takeExtension)
+import System.Process (createProcess, proc, StdStream(..), std_out, std_err, waitForProcess)
+import System.IO (hSetBinaryMode)
+import System.Exit (ExitCode(..))
+import Control.Exception (try, IOException)
 
 import Sigil.Core.Types
 import Sigil.Core.Error (SigilError(..))
 
 loadImage :: FilePath -> IO (Either SigilError (Header, Sigil.Core.Types.Image))
-loadImage path = do
-  result <- readImage path
+loadImage path
+  | isRawFile path = loadRawImage path
+  | otherwise = do
+      result <- readImage path
+      case result of
+        Left err -> pure $ Left (IoError err)
+        Right dyn -> pure $ dynamicToSigil dyn
+
+-- | Check if a file has a raw camera extension supported via dcraw
+isRawFile :: FilePath -> Bool
+isRawFile path = map toLower (takeExtension path) `elem` [".rw2"]
+
+-- | Load a raw camera file by invoking dcraw and parsing its PPM output
+loadRawImage :: FilePath -> IO (Either SigilError (Header, Sigil.Core.Types.Image))
+loadRawImage path = do
+  result <- try $ createProcess (proc "dcraw" ["-c", "-w", path])
+    { std_out = CreatePipe, std_err = CreatePipe }
   case result of
-    Left err -> pure $ Left (IoError err)
-    Right dyn -> pure $ dynamicToSigil dyn
+    Left e -> pure $ Left $ IoError $
+      "dcraw not found — install with: brew install dcraw\n" ++ show (e :: IOException)
+    Right (_, Just hout, Just herr, ph) -> do
+      hSetBinaryMode hout True
+      ppmData <- BS.hGetContents hout
+      exitCode <- waitForProcess ph
+      case exitCode of
+        ExitFailure _ -> do
+          errMsg <- BS.hGetContents herr
+          pure $ Left $ IoError $ "dcraw failed: " ++ C8.unpack errMsg
+        ExitSuccess -> case parsePPM ppmData of
+          Left err -> pure $ Left $ IoError $ "failed to parse dcraw output: " ++ err
+          Right (w, h, pixels) ->
+            let hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
+                stride = w * 3
+                rows = V.generate h $ \y ->
+                  V.fromList $ BS.unpack $ BS.take stride $ BS.drop (y * stride) pixels
+            in pure $ Right (hdr, rows)
+    Right _ -> pure $ Left $ IoError "failed to create dcraw process"
+
+-- | Parse PPM P6 binary format
+parsePPM :: BS.ByteString -> Either String (Int, Int, BS.ByteString)
+parsePPM bs = do
+  rest0 <- maybe (Left "not a PPM P6 file") Right $ BS.stripPrefix "P6" bs
+  let s1 = skipWsComments rest0
+  (w, s2) <- maybe (Left "bad width") Right $ C8.readInt s1
+  let s3 = skipWsComments s2
+  (h, s4) <- maybe (Left "bad height") Right $ C8.readInt s3
+  let s5 = skipWsComments s4
+  (maxval, s6) <- maybe (Left "bad maxval") Right $ C8.readInt s5
+  if maxval > 255
+    then Left "16-bit PPM not supported — dcraw should output 8-bit"
+    else Right (w, h, BS.drop 1 s6)
+
+-- | Skip whitespace and '#' comment lines in PPM header
+skipWsComments :: BS.ByteString -> BS.ByteString
+skipWsComments s
+  | BS.null s = s
+  | C8.head s == '#'  = skipWsComments $ BS.drop 1 $ C8.dropWhile (/= '\n') s
+  | C8.head s <= ' '  = skipWsComments $ BS.drop 1 s
+  | otherwise         = s
 
 saveImage :: FilePath -> Header -> Sigil.Core.Types.Image -> IO ()
 saveImage path hdr img = case colorSpace hdr of
@@ -43,7 +105,7 @@ dynamicToSigil (ImageRGB8 img)  = Right (imageToSigil img)
 dynamicToSigil (ImageRGBA8 img) = Right (imageToSigilRGBA img)
 dynamicToSigil (ImageY8 img)    = Right (imageToSigilGray img)
 dynamicToSigil (ImageYA8 img)   = Right (imageToSigilGrayAlpha img)
-dynamicToSigil _ = Left (IoError "unsupported pixel format (try 8-bit RGB/RGBA)")
+dynamicToSigil other = Right (imageToSigil (JP.convertRGB8 other))
 
 imageToSigil :: JP.Image PixelRGB8 -> (Header, Sigil.Core.Types.Image)
 imageToSigil img =

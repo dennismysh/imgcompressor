@@ -174,7 +174,7 @@ benchmark iters x = do
 benchCorpus :: FilePath -> Int -> IO ()
 benchCorpus dir iters = do
   files <- listDirectory dir
-  let imageFiles = filter (\f -> takeExtension f `elem` [".png", ".jpg", ".jpeg", ".bmp"]) files
+  let imageFiles = filter (\f -> takeExtension f `elem` [".png", ".jpg", ".jpeg", ".bmp", ".rw2"]) files
   if null imageFiles
     then die $ "No image files found in " ++ dir
     else do
