@@ -17,8 +17,10 @@ mod rice;
 mod predict;
 mod pipeline;
 mod reader;
+pub mod wavelet;
+pub mod color_transform;
 
-pub use types::{Header, ColorSpace, BitDepth, PredictorId};
+pub use types::{Header, ColorSpace, BitDepth, PredictorId, CompressionMethod};
 pub use error::SigilError;
 
 /// Decode a `.sgl` file from bytes. Returns the header and raw pixel data.

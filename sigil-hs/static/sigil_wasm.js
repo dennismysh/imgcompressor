@@ -3,7 +3,7 @@
 /**
  * Decode a `.sgl` file and return an object with header info and pixel data.
  *
- * Returns a JS object: `{ width, height, colorSpace, bitDepth, predictor, pixels: Uint8Array }`
+ * Returns a JS object: `{ width, height, colorSpace, bitDepth, compressionMethod, pixels: Uint8Array }`
  * @param {Uint8Array} data
  * @returns {any}
  */
@@ -20,7 +20,7 @@ export function decode(data) {
 /**
  * Read only the header from a `.sgl` file without decoding pixels.
  *
- * Returns: `{ width, height, colorSpace, bitDepth, predictor }`
+ * Returns: `{ width, height, colorSpace, bitDepth, compressionMethod }`
  * @param {Uint8Array} data
  * @returns {any}
  */

@@ -156,7 +156,7 @@ mod tests {
             }).collect()
         }
 
-        let header = Header { width: 2, height: 2, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, predictor: PredictorId::Sub };
+        let header = Header { width: 2, height: 2, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, compression_method: crate::types::CompressionMethod::Legacy };
         let pixels = vec![10, 20, 30, 40, 50, 60,  // row 0
                           70, 80, 90, 100, 110, 120]; // row 1
         let ch = 3;

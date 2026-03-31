@@ -74,5 +74,5 @@ fn read_header_only() {
     assert_eq!(header.height, 256);
     assert_eq!(header.color_space, sigil_decode::ColorSpace::Rgb);
     assert_eq!(header.bit_depth, sigil_decode::BitDepth::Eight);
-    assert_eq!(header.predictor, sigil_decode::PredictorId::Adaptive);
+    assert_eq!(header.compression_method, sigil_decode::CompressionMethod::DwtLossless);
 }

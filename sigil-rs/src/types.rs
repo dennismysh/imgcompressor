@@ -24,12 +24,28 @@ pub enum PredictorId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompressionMethod {
+    Legacy,       // 0
+    DwtLossless,  // 1
+}
+
+impl CompressionMethod {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(CompressionMethod::Legacy),
+            1 => Some(CompressionMethod::DwtLossless),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
     pub width: u32,
     pub height: u32,
     pub color_space: ColorSpace,
     pub bit_depth: BitDepth,
-    pub predictor: PredictorId,
+    pub compression_method: CompressionMethod,
 }
 
 impl Header {
@@ -109,14 +125,14 @@ mod tests {
 
     #[test]
     fn test_channels() {
-        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Grayscale, bit_depth: BitDepth::Eight, predictor: PredictorId::None }.channels(), 1);
-        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, predictor: PredictorId::None }.channels(), 3);
-        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Rgba, bit_depth: BitDepth::Eight, predictor: PredictorId::None }.channels(), 4);
+        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Grayscale, bit_depth: BitDepth::Eight, compression_method: CompressionMethod::Legacy }.channels(), 1);
+        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, compression_method: CompressionMethod::Legacy }.channels(), 3);
+        assert_eq!(Header { width: 1, height: 1, color_space: ColorSpace::Rgba, bit_depth: BitDepth::Eight, compression_method: CompressionMethod::Legacy }.channels(), 4);
     }
 
     #[test]
     fn test_row_bytes() {
-        let hdr = Header { width: 256, height: 256, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, predictor: PredictorId::Adaptive };
+        let hdr = Header { width: 256, height: 256, color_space: ColorSpace::Rgb, bit_depth: BitDepth::Eight, compression_method: CompressionMethod::DwtLossless };
         assert_eq!(hdr.row_bytes(), 768);
     }
 

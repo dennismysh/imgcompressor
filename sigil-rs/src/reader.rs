@@ -1,7 +1,7 @@
 use crate::chunk::{parse_chunks, Tag};
 use crate::error::SigilError;
 use crate::pipeline::decompress;
-use crate::types::{Header, ColorSpace, BitDepth, PredictorId};
+use crate::types::{Header, ColorSpace, BitDepth, CompressionMethod};
 
 const MAGIC: [u8; 6] = [0x89, 0x53, 0x47, 0x4C, 0x0D, 0x0A];
 
@@ -34,10 +34,10 @@ pub fn read_header(data: &[u8]) -> Result<Header, SigilError> {
         return Err(SigilError::InvalidMagic);
     }
 
-    // Validate version
+    // Validate version — accept 0.4 (legacy) and 0.5 (DWT)
     let major = data[6];
     let minor = data[7];
-    if major != 0 || minor != 4 {
+    if major != 0 || (minor != 4 && minor != 5) {
         return Err(SigilError::UnsupportedVersion { major, minor });
     }
 
@@ -67,10 +67,10 @@ fn parse_header(payload: &[u8]) -> Result<Header, SigilError> {
     let bit_depth = BitDepth::from_byte(payload[9])
         .ok_or(SigilError::InvalidBitDepth(payload[9]))?;
 
-    let predictor = PredictorId::from_byte(payload[10])
-        .ok_or(SigilError::InvalidPredictor(payload[10]))?;
+    let compression_method = CompressionMethod::from_byte(payload[10])
+        .ok_or(SigilError::InvalidCompressionMethod(payload[10]))?;
 
-    Ok(Header { width, height, color_space, bit_depth, predictor })
+    Ok(Header { width, height, color_space, bit_depth, compression_method })
 }
 
 #[cfg(test)]

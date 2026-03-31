@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 
 /// Decode a `.sgl` file and return an object with header info and pixel data.
 ///
-/// Returns a JS object: `{ width, height, colorSpace, bitDepth, predictor, pixels: Uint8Array }`
+/// Returns a JS object: `{ width, height, colorSpace, bitDepth, compressionMethod, pixels: Uint8Array }`
 #[wasm_bindgen(js_name = "decode")]
 pub fn decode(data: &[u8]) -> Result<JsValue, JsValue> {
     let (header, pixels) = sigil_decode::decode(data)
@@ -13,7 +13,7 @@ pub fn decode(data: &[u8]) -> Result<JsValue, JsValue> {
     set(&obj, "height", &JsValue::from(header.height));
     set(&obj, "colorSpace", &JsValue::from(color_space_str(header.color_space)));
     set(&obj, "bitDepth", &JsValue::from(bit_depth_num(header.bit_depth)));
-    set(&obj, "predictor", &JsValue::from(predictor_str(header.predictor)));
+    set(&obj, "compressionMethod", &JsValue::from(compression_method_str(header.compression_method)));
     set(&obj, "pixels", &js_sys::Uint8Array::from(pixels.as_slice()));
 
     Ok(obj.into())
@@ -21,7 +21,7 @@ pub fn decode(data: &[u8]) -> Result<JsValue, JsValue> {
 
 /// Read only the header from a `.sgl` file without decoding pixels.
 ///
-/// Returns: `{ width, height, colorSpace, bitDepth, predictor }`
+/// Returns: `{ width, height, colorSpace, bitDepth, compressionMethod }`
 #[wasm_bindgen(js_name = "readHeader")]
 pub fn read_header(data: &[u8]) -> Result<JsValue, JsValue> {
     let header = sigil_decode::read_header(data)
@@ -32,7 +32,7 @@ pub fn read_header(data: &[u8]) -> Result<JsValue, JsValue> {
     set(&obj, "height", &JsValue::from(header.height));
     set(&obj, "colorSpace", &JsValue::from(color_space_str(header.color_space)));
     set(&obj, "bitDepth", &JsValue::from(bit_depth_num(header.bit_depth)));
-    set(&obj, "predictor", &JsValue::from(predictor_str(header.predictor)));
+    set(&obj, "compressionMethod", &JsValue::from(compression_method_str(header.compression_method)));
 
     Ok(obj.into())
 }
@@ -57,14 +57,9 @@ fn bit_depth_num(bd: sigil_decode::BitDepth) -> u8 {
     }
 }
 
-fn predictor_str(p: sigil_decode::PredictorId) -> &'static str {
-    match p {
-        sigil_decode::PredictorId::None => "none",
-        sigil_decode::PredictorId::Sub => "sub",
-        sigil_decode::PredictorId::Up => "up",
-        sigil_decode::PredictorId::Average => "average",
-        sigil_decode::PredictorId::Paeth => "paeth",
-        sigil_decode::PredictorId::Gradient => "gradient",
-        sigil_decode::PredictorId::Adaptive => "adaptive",
+fn compression_method_str(cm: sigil_decode::CompressionMethod) -> &'static str {
+    match cm {
+        sigil_decode::CompressionMethod::Legacy      => "legacy",
+        sigil_decode::CompressionMethod::DwtLossless => "dwt-lossless",
     }
 }
