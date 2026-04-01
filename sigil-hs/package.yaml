@@ -38,6 +38,7 @@ library:
     - Sigil.Codec.ANS
     - Sigil.Codec.ColorTransform
     - Sigil.Codec.Wavelet
+    - Sigil.Codec.WaveletMut
     - Sigil.Codec.Serialize
   dependencies:
     - JuicyPixels >= 3.3
@@ -85,6 +86,7 @@ tests:
       - Test.Pipeline
       - Test.ANS
       - Test.Wavelet
+      - Test.WaveletMut
       - Test.ColorTransform
       - Test.Conformance
       - Test.Serialize
