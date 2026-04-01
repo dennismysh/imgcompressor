@@ -19,6 +19,7 @@ mod pipeline;
 mod reader;
 pub mod wavelet;
 pub mod color_transform;
+mod serialize;
 
 pub use types::{Header, ColorSpace, BitDepth, PredictorId, CompressionMethod};
 pub use error::SigilError;

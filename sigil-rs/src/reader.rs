@@ -34,10 +34,10 @@ pub fn read_header(data: &[u8]) -> Result<Header, SigilError> {
         return Err(SigilError::InvalidMagic);
     }
 
-    // Validate version — accept 0.4 (legacy) and 0.5 (DWT)
+    // Validate version — accept 0.4 (legacy), 0.5 (DWT), and 0.6 (DWT varint)
     let major = data[6];
     let minor = data[7];
-    if major != 0 || (minor != 4 && minor != 5) {
+    if major != 0 || (minor != 4 && minor != 5 && minor != 6) {
         return Err(SigilError::UnsupportedVersion { major, minor });
     }
 

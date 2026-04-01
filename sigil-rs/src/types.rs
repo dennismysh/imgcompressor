@@ -25,8 +25,9 @@ pub enum PredictorId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionMethod {
-    Legacy,       // 0
-    DwtLossless,  // 1
+    Legacy,              // 0
+    DwtLossless,         // 1
+    DwtLosslessVarint,   // 2
 }
 
 impl CompressionMethod {
@@ -34,6 +35,7 @@ impl CompressionMethod {
         match b {
             0 => Some(CompressionMethod::Legacy),
             1 => Some(CompressionMethod::DwtLossless),
+            2 => Some(CompressionMethod::DwtLosslessVarint),
             _ => None,
         }
     }
