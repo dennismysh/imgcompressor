@@ -65,7 +65,7 @@ loadRawImage path = do
         ExitSuccess -> case parsePPM ppmData of
           Left err -> pure $ Left $ IoError $ "failed to parse dcraw output: " ++ err
           Right (w, h, pixels) ->
-            let hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
+            let hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLosslessVarint
                 stride = w * 3
                 rows = V.generate h $ \y ->
                   V.fromList $ BS.unpack $ BS.take stride $ BS.drop (y * stride) pixels
@@ -111,7 +111,7 @@ imageToSigil :: JP.Image PixelRGB8 -> (Header, Sigil.Core.Types.Image)
 imageToSigil img =
   let w = imageWidth img
       h = imageHeight img
-      hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLossless
+      hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtLosslessVarint
       rows = V.fromList
         [ V.fromList
             [ comp
@@ -137,7 +137,7 @@ imageToSigilRGBA :: JP.Image PixelRGBA8 -> (Header, Sigil.Core.Types.Image)
 imageToSigilRGBA img =
   let w = imageWidth img
       h = imageHeight img
-      hdr = Header (fromIntegral w) (fromIntegral h) RGBA Depth8 DwtLossless
+      hdr = Header (fromIntegral w) (fromIntegral h) RGBA Depth8 DwtLosslessVarint
       rows = V.fromList
         [ V.fromList
             [ comp
@@ -163,7 +163,7 @@ imageToSigilGray :: JP.Image Pixel8 -> (Header, Sigil.Core.Types.Image)
 imageToSigilGray img =
   let w = imageWidth img
       h = imageHeight img
-      hdr = Header (fromIntegral w) (fromIntegral h) Grayscale Depth8 DwtLossless
+      hdr = Header (fromIntegral w) (fromIntegral h) Grayscale Depth8 DwtLosslessVarint
       rows = V.fromList
         [ V.fromList [ pixelAt img x y | x <- [0..w-1] ]
         | y <- [0..h-1]
@@ -174,7 +174,7 @@ imageToSigilGrayAlpha :: JP.Image JP.PixelYA8 -> (Header, Sigil.Core.Types.Image
 imageToSigilGrayAlpha img =
   let w = imageWidth img
       h = imageHeight img
-      hdr = Header (fromIntegral w) (fromIntegral h) GrayscaleAlpha Depth8 DwtLossless
+      hdr = Header (fromIntegral w) (fromIntegral h) GrayscaleAlpha Depth8 DwtLosslessVarint
       rows = V.fromList
         [ V.fromList
             [ comp
