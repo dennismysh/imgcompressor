@@ -57,7 +57,7 @@ main = hspec $ do
       forAll (choose (1, 8 :: Word32)) $ \w ->
         forAll (choose (1, 8 :: Word32)) $ \h ->
           forAll (arbitraryImage w h 3) $ \img ->
-            let hdr = Header w h RGB Depth8 DwtLossless
+            let hdr = Header w h RGB Depth8 DwtLosslessVarint
                 encoded = encodeSigilFile hdr emptyMetadata img
                 decoded = decodeSigilFile encoded
             in case decoded of
