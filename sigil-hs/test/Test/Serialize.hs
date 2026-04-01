@@ -8,7 +8,10 @@ import Data.Int (Int32)
 import Data.Word (Word32)
 import qualified Data.ByteString as BS
 
-import Sigil.Codec.Serialize (zigzag32, unzigzag32, encodeVarint, decodeVarint)
+import qualified Data.Vector as V
+import Sigil.Codec.Serialize (zigzag32, unzigzag32, encodeVarint, decodeVarint,
+                               dpcmEncode, dpcmDecode, packSubband, unpackSubband,
+                               packLLSubband, unpackLLSubband)
 
 spec :: Spec
 spec = describe "Serialize" $ do
@@ -49,3 +52,44 @@ spec = describe "Serialize" $ do
     it "values 128-16383 encode to exactly 2 bytes" $ property $
       forAll (choose (128, 16383 :: Word32)) $ \n ->
         BS.length (encodeVarint n) === 2
+
+  describe "dpcm" $ do
+    it "encodes a constant row as first value then zeros" $ do
+      let input = V.fromList [100, 100, 100, 100]
+          result = dpcmEncode 4 input
+      result `shouldBe` V.fromList [100, 0, 0, 0]
+
+    it "round-trips with width 1 (single-column)" $ property $
+      forAll (choose (1, 50)) $ \len ->
+        forAll (V.replicateM len (choose (-1000, 1000 :: Int32))) $ \v ->
+          dpcmDecode 1 (dpcmEncode 1 v) === v
+
+    it "round-trips with arbitrary width" $ property $
+      forAll (choose (1, 10)) $ \w ->
+        let len = w * w  -- square for simplicity
+        in forAll (V.replicateM len (choose (-1000, 1000 :: Int32))) $ \v ->
+             dpcmDecode w (dpcmEncode w v) === v
+
+    it "resets delta at each row boundary" $ do
+      -- 2x2 grid: row0=[10,20], row1=[50,60]
+      let input = V.fromList [10, 20, 50, 60]
+          result = dpcmEncode 2 input
+      -- row0: 10, 20-10=10; row1: 50, 60-50=10
+      result `shouldBe` V.fromList [10, 10, 50, 10]
+
+  describe "packSubband" $ do
+    it "round-trips detail subband" $ property $
+      forAll (choose (1, 100)) $ \len ->
+        forAll (V.replicateM len (choose (-5000, 5000 :: Int32))) $ \v ->
+          let packed = packSubband v
+              (unpacked, rest) = unpackSubband (V.length v) packed
+          in unpacked === v .&&. rest === BS.empty
+
+  describe "packLLSubband" $ do
+    it "round-trips LL subband with DPCM" $ property $
+      forAll (choose (1, 10)) $ \w ->
+        forAll (choose (1, 10)) $ \h ->
+          forAll (V.replicateM (w * h) (choose (-5000, 5000 :: Int32))) $ \v ->
+            let packed = packLLSubband w v
+                (unpacked, rest) = unpackLLSubband w (V.length v) packed
+            in unpacked === v .&&. rest === BS.empty
