@@ -3,6 +3,7 @@ module Main where
 
 import Web.Scotty
 import Network.Wai.Middleware.Cors (simpleCors)
+import Network.Wai.Handler.Warp (setPort, setTimeout, defaultSettings)
 import Network.HTTP.Types.Status (status400)
 
 import qualified Codec.Picture as JP
@@ -20,7 +21,8 @@ main :: IO ()
 main = do
   port <- maybe 3000 id . (>>= readMaybe) <$> lookupEnv "PORT"
   putStrLn $ "sigil-server starting on port " ++ show port
-  scotty port $ do
+  let opts = Options 0 (setPort port $ setTimeout 300 defaultSettings) False
+  scottyOpts opts $ do
     middleware simpleCors
 
     get "/" $ do

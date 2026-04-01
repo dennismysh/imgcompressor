@@ -64,6 +64,7 @@ executables:
     dependencies:
       - sigil-hs
       - scotty >= 0.22
+      - warp >= 3.3
       - wai-cors
       - wai
       - http-types
