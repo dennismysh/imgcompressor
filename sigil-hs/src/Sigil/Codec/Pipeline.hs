@@ -18,6 +18,7 @@ import Sigil.Core.Types
 import Sigil.Core.Error (SigilError(..))
 import Sigil.Codec.ColorTransform (forwardRCT, inverseRCT)
 import Sigil.Codec.Wavelet (dwtForwardMulti, dwtInverseMulti, computeLevels)
+import Sigil.Codec.Serialize (packSubband, unpackSubband, packLLSubband, unpackLLSubband, encodeVarint, decodeVarint)
 
 ------------------------------------------------------------------------
 -- SDAT payload format (DwtLossless):
@@ -45,7 +46,9 @@ compress hdr img =
       -- Determine DWT levels
       numLevels = computeLevels w h
       -- Apply DWT per channel and serialize
-      coeffBytes = serializeAllChannels numLevels w h int32Channels
+      coeffBytes = case compressionMethod hdr of
+        DwtLosslessVarint -> serializeAllChannelsVarint numLevels w h int32Channels
+        _                 -> serializeAllChannels numLevels w h int32Channels
       -- Compress
       compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
       -- Color transform byte
@@ -56,6 +59,7 @@ compress hdr img =
 -- | Decompress raw encoded bytes back to an image.
 decompress :: Header -> ByteString -> Either SigilError Image
 decompress hdr bs
+  | compressionMethod hdr == Legacy = Left (IoError "Legacy decompression not supported in Pipeline")
   | BS.length bs < 3 = Left TruncatedInput
   | otherwise =
     let w  = fromIntegral (width hdr)  :: Int
@@ -67,7 +71,11 @@ decompress hdr bs
         compressedData = BS.drop 3 bs
         decompressed = BL.toStrict $ Z.decompress $ BL.fromStrict compressedData
         -- Deserialize all channels
-        int32Channels = deserializeAllChannels numLevels w h numCh decompressed
+        int32Channels = case compressionMethod hdr of
+          DwtLosslessVarint ->
+            deserializeAllChannelsVarint numLevels w h numCh decompressed
+          _ ->
+            deserializeAllChannels numLevels w h numCh decompressed
         -- Convert Int32 channels back to Word8 channels
         word8Channels = fromInt32Channels (colorSpace hdr) w h useRCT int32Channels
         -- Interleave channels into rows
@@ -188,6 +196,79 @@ serializeCoeffs finalLL levels =
       levelBytes = concatMap (\(lh, hl, hh) ->
         [packInt32Vec lh, packInt32Vec hl, packInt32Vec hh]) levels
   in BS.concat (llBytes : levelBytes)
+
+-- | Serialize wavelet coefficients using zigzag + varint packing.
+-- Per spec: writes [varint ll_width] [varint ll_height] before LL data.
+serializeCoeffsVarint :: Int -> Int -> Vector Int32
+                      -> [(Vector Int32, Vector Int32, Vector Int32)]
+                      -> ByteString
+serializeCoeffsVarint llW llH finalLL levels =
+  let dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
+      llBytes = packLLSubband llW finalLL
+      levelBytes = concatMap (\(lh, hl, hh) ->
+        [packSubband lh, packSubband hl, packSubband hh]) levels
+  in BS.concat (dimBytes : llBytes : levelBytes)
+
+-- | Deserialize varint-packed wavelet coefficients.
+-- Per spec: reads [varint ll_width] [varint ll_height] before LL data.
+deserializeCoeffsVarint :: Int -> Int -> Int -> ByteString
+                        -> (Vector Int32, [(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+deserializeCoeffsVarint numLevels w h bs =
+  let levelSizes = computeLevelSizes numLevels w h
+      -- Read explicit LL dimensions from the stream
+      (llW32, rest0a) = decodeVarint bs
+      (llH32, rest0b) = decodeVarint rest0a
+      llW = fromIntegral llW32 :: Int
+      llH = fromIntegral llH32 :: Int
+      llCount = llW * llH
+      (finalLL, rest1) = unpackLLSubband llW llCount rest0b
+      (levels, rest2) = readLevelsVarint levelSizes rest1
+  in (finalLL, levels, rest2)
+
+-- | Read detail subbands using varint unpacking.
+readLevelsVarint :: [(Int, Int, Int, Int)] -> ByteString
+                 -> ([(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+readLevelsVarint [] bs = ([], bs)
+readLevelsVarint ((wLow, hLow, wHigh, hHigh) : rest) bs =
+  let lhCount = hLow * wHigh
+      hlCount = hHigh * wLow
+      hhCount = hHigh * wHigh
+      (lh, bs1) = unpackSubband lhCount bs
+      (hl, bs2) = unpackSubband hlCount bs1
+      (hh, bs3) = unpackSubband hhCount bs2
+      (restLevels, bsFinal) = readLevelsVarint rest bs3
+  in ((lh, hl, hh) : restLevels, bsFinal)
+
+-- | Serialize a channel using varint packing (v0.6).
+serializeChannelVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannelVarint numLevels w h chan =
+  let (finalLL, levels) = dwtForwardMulti numLevels w h chan
+      levelSizes = computeLevelSizes numLevels w h
+      (llW, llH) = case levelSizes of
+                     [] -> (w, h)
+                     ((lw, lh, _, _) : _) -> (lw, lh)
+  in serializeCoeffsVarint llW llH finalLL levels
+
+-- | Serialize all channels using varint packing (v0.6).
+serializeAllChannelsVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannelsVarint numLevels w h chans =
+  BS.concat $ map (serializeChannelVarint numLevels w h) chans
+
+-- | Deserialize a single channel from varint-packed bytes, apply inverse DWT.
+deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannelVarint numLevels w h bs =
+  let (finalLL, levels, remaining) = deserializeCoeffsVarint numLevels w h bs
+      reconstructed = dwtInverseMulti numLevels w h finalLL levels
+  in (reconstructed, remaining)
+
+-- | Deserialize all channels from varint-packed bytes.
+deserializeAllChannelsVarint :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannelsVarint numLevels w h numCh bs = go numCh bs
+  where
+    go 0 _ = []
+    go n remaining =
+      let (chan, rest) = deserializeChannelVarint numLevels w h remaining
+      in chan : go (n - 1) rest
 
 -- | Deserialize all channels from a ByteString.
 deserializeAllChannels :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]

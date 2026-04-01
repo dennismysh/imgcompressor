@@ -2,14 +2,16 @@ use crate::error::SigilError;
 use crate::types::{Header, CompressionMethod, ColorSpace};
 use crate::color_transform::inverse_rct;
 use crate::wavelet::dwt_inverse_multi;
+use crate::serialize::{decode_varint, unpack_subband, unpack_ll_subband};
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 
 /// Decompress an SDAT payload into raw pixel data.
 pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, SigilError> {
     match header.compression_method {
-        CompressionMethod::Legacy     => decompress_legacy(header, sdat_payload),
-        CompressionMethod::DwtLossless => decompress_dwt(header, sdat_payload),
+        CompressionMethod::Legacy            => decompress_legacy(header, sdat_payload),
+        CompressionMethod::DwtLossless       => decompress_dwt(header, sdat_payload),
+        CompressionMethod::DwtLosslessVarint => decompress_dwt_varint(header, sdat_payload),
     }
 }
 
@@ -198,6 +200,100 @@ fn read_i32_slice(data: &[u8], offset: &mut usize, count: usize) -> Result<Vec<i
     }
     *offset += byte_count;
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// DWT lossless varint path (v0.6)
+// ---------------------------------------------------------------------------
+
+fn decompress_dwt_varint(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, SigilError> {
+    if sdat_payload.len() < 3 {
+        return Err(SigilError::TruncatedInput);
+    }
+
+    let num_levels    = sdat_payload[0] as usize;
+    let ct_byte       = sdat_payload[1];
+    let num_channels  = sdat_payload[2] as usize;
+    let use_rct       = ct_byte == 1;
+    let compressed    = &sdat_payload[3..];
+
+    let mut decoder = ZlibDecoder::new(compressed);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)
+        .map_err(|_| SigilError::TruncatedInput)?;
+
+    let w = header.width  as usize;
+    let h = header.height as usize;
+
+    // Compute level sizes (deepest-first)
+    let level_sizes: Vec<(usize, usize, usize, usize)> = {
+        let mut raw: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(num_levels);
+        let mut cw = w;
+        let mut ch = h;
+        for _ in 0..num_levels {
+            let w_low  = (cw + 1) / 2;
+            let w_high = cw / 2;
+            let h_low  = (ch + 1) / 2;
+            let h_high = ch / 2;
+            raw.push((w_low, h_low, w_high, h_high));
+            cw = w_low;
+            ch = h_low;
+        }
+        raw.reverse();
+        raw
+    };
+
+    let mut offset = 0usize;
+    let mut channels_i32: Vec<Vec<i32>> = Vec::with_capacity(num_channels);
+
+    for _ in 0..num_channels {
+        // Read explicit LL dimensions from the stream (per spec)
+        let ll_w = decode_varint(&decompressed, &mut offset) as usize;
+        let ll_h = decode_varint(&decompressed, &mut offset) as usize;
+        let ll_count = ll_w * ll_h;
+
+        let final_ll = unpack_ll_subband(&decompressed, &mut offset, ll_count, ll_w);
+
+        let mut levels: Vec<(Vec<i32>, Vec<i32>, Vec<i32>)> = Vec::with_capacity(num_levels);
+        for &(w_low, h_low, w_high, h_high) in &level_sizes {
+            let lh_count = h_low  * w_high;
+            let hl_count = h_high * w_low;
+            let hh_count = h_high * w_high;
+            let lh = unpack_subband(&decompressed, &mut offset, lh_count);
+            let hl = unpack_subband(&decompressed, &mut offset, hl_count);
+            let hh = unpack_subband(&decompressed, &mut offset, hh_count);
+            levels.push((lh, hl, hh));
+        }
+
+        let reconstructed = dwt_inverse_multi(&final_ll, &levels, w, h, num_levels);
+        channels_i32.push(reconstructed);
+    }
+
+    // Inverse color transform + interleave (identical to decompress_dwt)
+    let pixels = if use_rct {
+        match header.color_space {
+            ColorSpace::Rgb => {
+                inverse_rct(w, h, &channels_i32[0], &channels_i32[1], &channels_i32[2])
+            }
+            ColorSpace::Rgba => {
+                let rgb = inverse_rct(w, h, &channels_i32[0], &channels_i32[1], &channels_i32[2]);
+                let n = w * h;
+                let mut rgba = Vec::with_capacity(n * 4);
+                for i in 0..n {
+                    rgba.push(rgb[i * 3]);
+                    rgba.push(rgb[i * 3 + 1]);
+                    rgba.push(rgb[i * 3 + 2]);
+                    rgba.push(channels_i32[3][i].clamp(0, 255) as u8);
+                }
+                rgba
+            }
+            _ => interleave_channels(&channels_i32, w, h),
+        }
+    } else {
+        interleave_channels(&channels_i32, w, h)
+    };
+
+    Ok(pixels)
 }
 
 /// Interleave per-channel i32 arrays into flat u8 pixels (grayscale / grayscale-alpha).

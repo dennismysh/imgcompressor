@@ -16,7 +16,7 @@ spec = describe "Pipeline" $ do
     forAll (choose (1, 16 :: Word32)) $ \w ->
       forAll (choose (1, 16 :: Word32)) $ \h ->
         forAll (arbitraryImage w h 3) $ \img ->
-          let hdr = Header w h RGB Depth8 DwtLossless
+          let hdr = Header w h RGB Depth8 DwtLosslessVarint
               encoded = compress hdr img
               decoded = decompress hdr encoded
           in decoded === Right img
@@ -25,7 +25,7 @@ spec = describe "Pipeline" $ do
     forAll (choose (1, 16 :: Word32)) $ \w ->
       forAll (choose (1, 16 :: Word32)) $ \h ->
         forAll (arbitraryImage w h 1) $ \img ->
-          let hdr = Header w h Grayscale Depth8 DwtLossless
+          let hdr = Header w h Grayscale Depth8 DwtLosslessVarint
               encoded = compress hdr img
               decoded = decompress hdr encoded
           in decoded === Right img
@@ -34,7 +34,7 @@ spec = describe "Pipeline" $ do
     forAll (choose (1, 16 :: Word32)) $ \w ->
       forAll (choose (1, 16 :: Word32)) $ \h ->
         forAll (arbitraryImage w h 4) $ \img ->
-          let hdr = Header w h RGBA Depth8 DwtLossless
+          let hdr = Header w h RGBA Depth8 DwtLosslessVarint
               encoded = compress hdr img
               decoded = decompress hdr encoded
           in decoded === Right img
@@ -43,7 +43,7 @@ spec = describe "Pipeline" $ do
     forAll (choose (1, 16 :: Word32)) $ \w ->
       forAll (choose (1, 16 :: Word32)) $ \h ->
         forAll (arbitraryImage w h 2) $ \img ->
-          let hdr = Header w h GrayscaleAlpha Depth8 DwtLossless
+          let hdr = Header w h GrayscaleAlpha Depth8 DwtLosslessVarint
               encoded = compress hdr img
               decoded = decompress hdr encoded
           in decoded === Right img

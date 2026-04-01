@@ -22,6 +22,7 @@ import qualified Test.ANS
 import qualified Test.Wavelet
 import qualified Test.ColorTransform
 import qualified Test.Conformance
+import qualified Test.Serialize
 
 main :: IO ()
 main = hspec $ do
@@ -34,6 +35,7 @@ main = hspec $ do
   Test.Wavelet.spec
   Test.ColorTransform.spec
   Test.Conformance.spec
+  Test.Serialize.spec
   describe "Chunk" $ do
     it "CRC32 of empty is 0x00000000" $
       crc32 BS.empty `shouldBe` 0x00000000
@@ -55,7 +57,7 @@ main = hspec $ do
       forAll (choose (1, 8 :: Word32)) $ \w ->
         forAll (choose (1, 8 :: Word32)) $ \h ->
           forAll (arbitraryImage w h 3) $ \img ->
-            let hdr = Header w h RGB Depth8 DwtLossless
+            let hdr = Header w h RGB Depth8 DwtLosslessVarint
                 encoded = encodeSigilFile hdr emptyMetadata img
                 decoded = decodeSigilFile encoded
             in case decoded of

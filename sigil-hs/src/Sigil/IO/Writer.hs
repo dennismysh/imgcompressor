@@ -20,7 +20,7 @@ magic = BS.pack [0x89, 0x53, 0x47, 0x4C, 0x0D, 0x0A]
 
 versionMajor, versionMinor :: Word8
 versionMajor = 0
-versionMinor = 5
+versionMinor = 6
 
 encodeSigilFile :: Header -> Metadata -> Image -> BL.ByteString
 encodeSigilFile hdr meta img = runPut $ do
