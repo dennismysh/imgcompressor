@@ -14,6 +14,7 @@ ghc-options:
 dependencies:
   - base >= 4.17 && < 5
   - bytestring >= 0.11
+  - deepseq >= 1.4
   - vector >= 0.13
   - binary >= 0.8
   - text >= 2.0

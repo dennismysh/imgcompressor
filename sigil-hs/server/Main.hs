@@ -108,11 +108,11 @@ main = do
                 Just sessionIdLazy -> do
                   let sessionId = TL.toStrict sessionIdLazy
                   ref <- newIORef (ProgressState "starting" 0 Nothing)
-                  modifyIORef' sessions (Map.insert sessionId ref)
+                  atomicModifyIORef' sessions (\m -> (Map.insert sessionId ref m, ()))
                   -- Clean up session after 5 minutes
                   _ <- forkIO $ do
                     threadDelay (5 * 60 * 1000000)
-                    modifyIORef' sessions (Map.delete sessionId)
+                    atomicModifyIORef' sessions (\m -> (Map.delete sessionId m, ()))
                   pure $ \stage pct detail ->
                     writeIORef ref (ProgressState stage pct detail)
 

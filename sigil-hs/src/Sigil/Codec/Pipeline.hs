@@ -5,6 +5,7 @@ module Sigil.Codec.Pipeline
   , ProgressCallback
   ) where
 
+import Control.DeepSeq (force)
 import Data.Bits (shiftR, shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -93,8 +94,8 @@ compressWithProgress report hdr img = do
              (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
              finalLL = V.convert finalLLU :: Vector Int32
              levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
-         -- Force evaluation so progress is meaningful
-         finalLL `seq` levels `seq` pure (finalLL, levels)
+         -- Force full evaluation so progress is meaningful
+         pure $! force (finalLL, levels)
     | (i, c) <- zip [0..] int32Channels
     ]
 
