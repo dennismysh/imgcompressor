@@ -1,6 +1,8 @@
 module Sigil.Codec.WaveletMut
   ( lift53Forward1DMut
   , lift53Inverse1DMut
+  , dwt2DForwardMut
+  , dwt2DInverseMut
   ) where
 
 import Control.Monad (forM_)
@@ -67,3 +69,89 @@ lift53Inverse1DMut approx detail
   where
     nApprox = VU.length approx
     nDetail = VU.length detail
+
+dwt2DForwardMut :: Int -> Int -> VU.Vector Int32
+                -> (VU.Vector Int32, VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)
+dwt2DForwardMut w h arr
+  | w <= 0 || h <= 0 = (VU.empty, VU.empty, VU.empty, VU.empty)
+  | w == 1 && h == 1 = (arr, VU.empty, VU.empty, VU.empty)
+  | otherwise = runST $ do
+      let wLow  = (w + 1) `div` 2
+          wHigh = w `div` 2
+          hLow  = (h + 1) `div` 2
+          hHigh = h `div` 2
+      rowBuf <- VUM.new (h * w)
+      -- Step 1: Transform rows
+      forM_ [0 .. h - 1] $ \y -> do
+        let row = VU.generate w $ \x -> arr `VU.unsafeIndex` (y * w + x)
+            (lo, hi) = lift53Forward1DMut row
+        forM_ [0 .. wLow - 1] $ \x ->
+          VUM.unsafeWrite rowBuf (y * w + x) (lo `VU.unsafeIndex` x)
+        forM_ [0 .. wHigh - 1] $ \x ->
+          VUM.unsafeWrite rowBuf (y * w + wLow + x) (hi `VU.unsafeIndex` x)
+      rowFrozen <- VU.unsafeFreeze rowBuf
+      -- Step 2: Transform columns
+      colBuf <- VUM.new (h * w)
+      forM_ [0 .. w - 1] $ \x -> do
+        let col = VU.generate h $ \y -> rowFrozen `VU.unsafeIndex` (y * w + x)
+            (lo, hi) = lift53Forward1DMut col
+        forM_ [0 .. hLow - 1] $ \y ->
+          VUM.unsafeWrite colBuf (y * w + x) (lo `VU.unsafeIndex` y)
+        forM_ [0 .. hHigh - 1] $ \y ->
+          VUM.unsafeWrite colBuf ((hLow + y) * w + x) (hi `VU.unsafeIndex` y)
+      colFrozen <- VU.unsafeFreeze colBuf
+      -- Step 3: Extract subbands
+      let ll = VU.generate (hLow * wLow) $ \idx ->
+                 let y = idx `div` wLow; x = idx `mod` wLow
+                 in colFrozen `VU.unsafeIndex` (y * w + x)
+          lh = VU.generate (hLow * wHigh) $ \idx ->
+                 let y = idx `div` wHigh; x = idx `mod` wHigh
+                 in colFrozen `VU.unsafeIndex` (y * w + wLow + x)
+          hl = VU.generate (hHigh * wLow) $ \idx ->
+                 let y = idx `div` wLow; x = idx `mod` wLow
+                 in colFrozen `VU.unsafeIndex` ((hLow + y) * w + x)
+          hh = VU.generate (hHigh * wHigh) $ \idx ->
+                 let y = idx `div` wHigh; x = idx `mod` wHigh
+                 in colFrozen `VU.unsafeIndex` ((hLow + y) * w + wLow + x)
+      pure (ll, lh, hl, hh)
+
+dwt2DInverseMut :: Int -> Int -> (VU.Vector Int32, VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)
+                -> VU.Vector Int32
+dwt2DInverseMut w h (ll, lh, hl, hh)
+  | w <= 0 || h <= 0 = VU.empty
+  | w == 1 && h == 1 = ll
+  | otherwise = runST $ do
+      let wLow  = (w + 1) `div` 2
+          wHigh = w `div` 2
+          hLow  = (h + 1) `div` 2
+          hHigh = h `div` 2
+      colBuf <- VUM.new (h * w)
+      forM_ [0 .. hLow * wLow - 1] $ \idx -> do
+        let y = idx `div` wLow; x = idx `mod` wLow
+        VUM.unsafeWrite colBuf (y * w + x) (ll `VU.unsafeIndex` idx)
+      forM_ [0 .. hLow * wHigh - 1] $ \idx -> do
+        let y = idx `div` wHigh; x = idx `mod` wHigh
+        VUM.unsafeWrite colBuf (y * w + wLow + x) (lh `VU.unsafeIndex` idx)
+      forM_ [0 .. hHigh * wLow - 1] $ \idx -> do
+        let y = idx `div` wLow; x = idx `mod` wLow
+        VUM.unsafeWrite colBuf ((hLow + y) * w + x) (hl `VU.unsafeIndex` idx)
+      forM_ [0 .. hHigh * wHigh - 1] $ \idx -> do
+        let y = idx `div` wHigh; x = idx `mod` wHigh
+        VUM.unsafeWrite colBuf ((hLow + y) * w + wLow + x) (hh `VU.unsafeIndex` idx)
+      colLayout <- VU.unsafeFreeze colBuf
+      rowBuf <- VUM.new (h * w)
+      forM_ [0 .. w - 1] $ \x -> do
+        let colLo = VU.generate hLow  $ \y -> colLayout `VU.unsafeIndex` (y * w + x)
+            colHi = VU.generate hHigh $ \y -> colLayout `VU.unsafeIndex` ((hLow + y) * w + x)
+            col = lift53Inverse1DMut colLo colHi
+        forM_ [0 .. h - 1] $ \y ->
+          VUM.unsafeWrite rowBuf (y * w + x) (col `VU.unsafeIndex` y)
+      rowLayout <- VU.unsafeFreeze rowBuf
+      result <- VUM.new (h * w)
+      forM_ [0 .. h - 1] $ \y -> do
+        let rowLo = VU.generate wLow  $ \i -> rowLayout `VU.unsafeIndex` (y * w + i)
+            rowHi = VU.generate wHigh $ \i -> rowLayout `VU.unsafeIndex` (y * w + wLow + i)
+            row = lift53Inverse1DMut rowLo rowHi
+        forM_ [0 .. w - 1] $ \x ->
+          VUM.unsafeWrite result (y * w + x) (row `VU.unsafeIndex` x)
+      VU.unsafeFreeze result
