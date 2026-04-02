@@ -1,6 +1,8 @@
 module Sigil.Codec.Pipeline
   ( compress
   , decompress
+  , compressWithProgress
+  , ProgressCallback
   ) where
 
 import Data.Bits (shiftR, shiftL, (.|.))
@@ -8,6 +10,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -57,6 +61,64 @@ compress hdr img =
       ctByte = if useRCT then 1 else 0 :: Word8
       numCh  = fromIntegral (length int32Channels) :: Word8
   in BS.pack [fromIntegral numLevels, ctByte, numCh] <> compressed
+
+-- | Progress callback: stage name, percentage (0-100), optional detail text.
+type ProgressCallback = Text -> Int -> Maybe Text -> IO ()
+
+-- | Compress with progress reporting.
+-- Same output as compress, but calls the callback at each pipeline stage.
+compressWithProgress :: ProgressCallback -> Header -> Image -> IO ByteString
+compressWithProgress report hdr img = do
+  let w  = fromIntegral (width hdr)  :: Int
+      h  = fromIntegral (height hdr) :: Int
+      ch = channels (colorSpace hdr)
+
+  report "decoding" 0 Nothing
+  let flat = V.concat (V.toList img)
+      chanVecs = deinterleave flat ch
+
+  report "color_transform" 10 Nothing
+  let (useRCT, int32Channels) = toInt32Channels (colorSpace hdr) w h chanVecs
+      numLevels = computeLevels w h
+      numCh = length int32Channels
+      -- DWT spans pct 15-80 (65 percentage points), distributed across channels
+      pctPerChan = 65 `div` max 1 numCh
+
+  -- DWT per channel with progress
+  dwtResults <- sequence
+    [ do let basePct = 15 + i * pctPerChan
+             detail = Just $ T.pack $ "channel " ++ show (i + 1) ++ "/" ++ show numCh
+         report "dwt" basePct detail
+         let chanU = VU.convert c :: VU.Vector Int32
+             (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+             finalLL = V.convert finalLLU :: Vector Int32
+             levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
+         -- Force evaluation so progress is meaningful
+         finalLL `seq` levels `seq` pure (finalLL, levels)
+    | (i, c) <- zip [0..] int32Channels
+    ]
+
+  report "serialize" 80 Nothing
+  let coeffBytes = case compressionMethod hdr of
+        DwtLosslessVarint ->
+          let levelSizes = computeLevelSizes numLevels w h
+              (llW, llH) = case levelSizes of
+                             [] -> (w, h)
+                             ((lw, lh, _, _) : _) -> (lw, lh)
+          in BS.concat $ map (\(finalLL, levels) ->
+               serializeCoeffsVarint llW llH finalLL levels) dwtResults
+        _ ->
+          BS.concat $ map (\(finalLL, levels) ->
+            serializeCoeffs finalLL levels) dwtResults
+
+  report "compress" 90 Nothing
+  let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      ctByte = if useRCT then 1 else 0 :: Word8
+      numChByte  = fromIntegral (length int32Channels) :: Word8
+      result = BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
+
+  report "done" 100 Nothing
+  pure result
 
 -- | Decompress raw encoded bytes back to an image.
 decompress :: Header -> ByteString -> Either SigilError Image

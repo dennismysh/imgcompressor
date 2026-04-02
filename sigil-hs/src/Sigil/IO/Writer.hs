@@ -1,5 +1,6 @@
 module Sigil.IO.Writer
   ( encodeSigilFile
+  , encodeSigilFileWithProgress
   , writeSigilFile
   ) where
 
@@ -12,7 +13,7 @@ import Data.Text.Encoding (encodeUtf8)
 
 import Sigil.Core.Types
 import Sigil.Core.Chunk
-import Sigil.Codec.Pipeline (compress)
+import Sigil.Codec.Pipeline (compress, compressWithProgress, ProgressCallback)
 
 -- | Magic bytes: 0x89 S G L \r \n
 magic :: ByteString
@@ -34,6 +35,22 @@ encodeSigilFile hdr meta img = runPut $ do
   let payload = compress hdr img
   putChunk (makeChunk SDAT payload)
   putChunk (makeChunk SEND BS.empty)
+
+-- | Like encodeSigilFile but with progress reporting.
+-- Runs in IO because the progress callback requires it.
+encodeSigilFileWithProgress :: ProgressCallback -> Header -> Metadata -> Image -> IO BL.ByteString
+encodeSigilFileWithProgress report hdr meta img = do
+  payload <- compressWithProgress report hdr img
+  pure $ runPut $ do
+    putByteString magic
+    putWord8 versionMajor
+    putWord8 versionMinor
+    putChunk (makeChunk SHDR (encodeHeader hdr))
+    if not (null (metaEntries meta))
+      then putChunk (makeChunk SMTA (encodeMetadata meta))
+      else pure ()
+    putChunk (makeChunk SDAT payload)
+    putChunk (makeChunk SEND BS.empty)
 
 putChunk :: Chunk -> Put
 putChunk c = do
