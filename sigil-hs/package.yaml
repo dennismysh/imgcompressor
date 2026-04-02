@@ -14,6 +14,7 @@ ghc-options:
 dependencies:
   - base >= 4.17 && < 5
   - bytestring >= 0.11
+  - deepseq >= 1.4
   - vector >= 0.13
   - binary >= 0.8
   - text >= 2.0
@@ -38,6 +39,7 @@ library:
     - Sigil.Codec.ANS
     - Sigil.Codec.ColorTransform
     - Sigil.Codec.Wavelet
+    - Sigil.Codec.WaveletMut
     - Sigil.Codec.Serialize
   dependencies:
     - JuicyPixels >= 3.3
@@ -85,6 +87,7 @@ tests:
       - Test.Pipeline
       - Test.ANS
       - Test.Wavelet
+      - Test.WaveletMut
       - Test.ColorTransform
       - Test.Conformance
       - Test.Serialize

@@ -193,16 +193,23 @@
     #loading.visible { display: block; }
     #loading p { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 0.05em; }
 
-    .spinner {
-      width: 24px; height: 24px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+    .progress-container {
+      width: 100%;
+      max-width: 400px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
       margin: 0 auto 1rem;
+      overflow: hidden;
     }
 
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
 
     #error { display: none; text-align: center; padding: 2rem; color: #c46565; font-size: 0.85rem; }
     #error.visible { display: block; }
@@ -241,8 +248,11 @@
   </div>
 
   <div id="loading">
-    <div class="spinner"></div>
-    <p>Compressing...</p>
+    <div class="progress-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <p id="progress-label">Starting...</p>
+    <p id="progress-detail" style="margin-top: 0.3rem; font-size: 0.7rem; color: var(--text-dim); font-family: var(--mono);"></p>
   </div>
 
   <div id="error"></div>
@@ -349,12 +359,51 @@ async function handleFile(file) {
   results.classList.remove('visible');
   loading.classList.add('visible');
 
+  // Reset progress
+  const progressBar = document.getElementById('progress-bar');
+  const progressLabel = document.getElementById('progress-label');
+  const progressDetail = document.getElementById('progress-detail');
+  progressBar.style.width = '0%';
+  progressLabel.textContent = 'Starting...';
+  progressDetail.textContent = '';
+
+  // Generate session ID for progress tracking
+  const sessionId = crypto.randomUUID();
+
+  // Start polling for progress
+  const pollInterval = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/progress/' + sessionId);
+      if (resp.ok) {
+        const data = await resp.json();
+        progressBar.style.width = data.pct + '%';
+        const stageNames = {
+          'starting': 'Starting...',
+          'decoding': 'Decoding image...',
+          'color_transform': 'Color transform...',
+          'dwt': 'Wavelet transform...',
+          'serialize': 'Serializing...',
+          'compress': 'Compressing...',
+          'done': 'Done!'
+        };
+        progressLabel.textContent = stageNames[data.stage] || data.stage;
+        progressDetail.textContent = data.detail || '';
+      }
+    } catch (e) { /* ignore polling errors */ }
+  }, 200);
+
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
 
     document.getElementById('original-img').src = URL.createObjectURL(file);
 
-    const resp = await fetch('/api/encode', { method: 'POST', body: bytes });
+    const resp = await fetch('/api/encode', {
+      method: 'POST',
+      body: bytes,
+      headers: { 'X-Session-Id': sessionId }
+    });
+
+    clearInterval(pollInterval);
 
     if (!resp.ok) throw new Error(await resp.text());
 
@@ -401,6 +450,7 @@ async function handleFile(file) {
     loading.classList.remove('visible');
     results.classList.add('visible');
   } catch (e) {
+    clearInterval(pollInterval);
     loading.classList.remove('visible');
     showError(e.message || 'Compression failed.');
     dropZone.style.display = '';

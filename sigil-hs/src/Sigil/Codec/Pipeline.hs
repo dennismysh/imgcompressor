@@ -1,23 +1,30 @@
 module Sigil.Codec.Pipeline
   ( compress
   , decompress
+  , compressWithProgress
+  , ProgressCallback
   ) where
 
+import Control.DeepSeq (force)
 import Data.Bits (shiftR, shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import qualified Codec.Compression.Zlib as Z
 
 import Sigil.Core.Types
 import Sigil.Core.Error (SigilError(..))
 import Sigil.Codec.ColorTransform (forwardRCT, inverseRCT)
-import Sigil.Codec.Wavelet (dwtForwardMulti, dwtInverseMulti, computeLevels)
+import Sigil.Codec.Wavelet (computeLevels)
+import Sigil.Codec.WaveletMut (dwtForwardMultiMut, dwtInverseMultiMut)
 import Sigil.Codec.Serialize (packSubband, unpackSubband, packLLSubband, unpackLLSubband, encodeVarint, decodeVarint)
 
 ------------------------------------------------------------------------
@@ -55,6 +62,64 @@ compress hdr img =
       ctByte = if useRCT then 1 else 0 :: Word8
       numCh  = fromIntegral (length int32Channels) :: Word8
   in BS.pack [fromIntegral numLevels, ctByte, numCh] <> compressed
+
+-- | Progress callback: stage name, percentage (0-100), optional detail text.
+type ProgressCallback = Text -> Int -> Maybe Text -> IO ()
+
+-- | Compress with progress reporting.
+-- Same output as compress, but calls the callback at each pipeline stage.
+compressWithProgress :: ProgressCallback -> Header -> Image -> IO ByteString
+compressWithProgress report hdr img = do
+  let w  = fromIntegral (width hdr)  :: Int
+      h  = fromIntegral (height hdr) :: Int
+      ch = channels (colorSpace hdr)
+
+  report "decoding" 0 Nothing
+  let flat = V.concat (V.toList img)
+      chanVecs = deinterleave flat ch
+
+  report "color_transform" 10 Nothing
+  let (useRCT, int32Channels) = toInt32Channels (colorSpace hdr) w h chanVecs
+      numLevels = computeLevels w h
+      numCh = length int32Channels
+      -- DWT spans pct 15-80 (65 percentage points), distributed across channels
+      pctPerChan = 65 `div` max 1 numCh
+
+  -- DWT per channel with progress
+  dwtResults <- sequence
+    [ do let basePct = 15 + i * pctPerChan
+             detail = Just $ T.pack $ "channel " ++ show (i + 1) ++ "/" ++ show numCh
+         report "dwt" basePct detail
+         let chanU = VU.convert c :: VU.Vector Int32
+             (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+             finalLL = V.convert finalLLU :: Vector Int32
+             levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
+         -- Force full evaluation so progress is meaningful
+         pure $! force (finalLL, levels)
+    | (i, c) <- zip [0..] int32Channels
+    ]
+
+  report "serialize" 80 Nothing
+  let coeffBytes = case compressionMethod hdr of
+        DwtLosslessVarint ->
+          let levelSizes = computeLevelSizes numLevels w h
+              (llW, llH) = case levelSizes of
+                             [] -> (w, h)
+                             ((lw, lh, _, _) : _) -> (lw, lh)
+          in BS.concat $ map (\(finalLL, levels) ->
+               serializeCoeffsVarint llW llH finalLL levels) dwtResults
+        _ ->
+          BS.concat $ map (\(finalLL, levels) ->
+            serializeCoeffs finalLL levels) dwtResults
+
+  report "compress" 90 Nothing
+  let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      ctByte = if useRCT then 1 else 0 :: Word8
+      numChByte  = fromIntegral (length int32Channels) :: Word8
+      result = BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
+
+  report "done" 100 Nothing
+  pure result
 
 -- | Decompress raw encoded bytes back to an image.
 decompress :: Header -> ByteString -> Either SigilError Image
@@ -184,7 +249,10 @@ serializeAllChannels numLevels w h chans =
 -- | Apply forward DWT to a channel and serialize the coefficients.
 serializeChannel :: Int -> Int -> Int -> Vector Int32 -> ByteString
 serializeChannel numLevels w h chan =
-  let (finalLL, levels) = dwtForwardMulti numLevels w h chan
+  let chanU = VU.convert chan :: VU.Vector Int32
+      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+      finalLL = V.convert finalLLU :: Vector Int32
+      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
   in serializeCoeffs finalLL levels
 
 -- | Serialize wavelet coefficients:
@@ -242,7 +310,10 @@ readLevelsVarint ((wLow, hLow, wHigh, hHigh) : rest) bs =
 -- | Serialize a channel using varint packing (v0.6).
 serializeChannelVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
 serializeChannelVarint numLevels w h chan =
-  let (finalLL, levels) = dwtForwardMulti numLevels w h chan
+  let chanU = VU.convert chan :: VU.Vector Int32
+      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+      finalLL = V.convert finalLLU :: Vector Int32
+      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
       levelSizes = computeLevelSizes numLevels w h
       (llW, llH) = case levelSizes of
                      [] -> (w, h)
@@ -258,7 +329,10 @@ serializeAllChannelsVarint numLevels w h chans =
 deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
 deserializeChannelVarint numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffsVarint numLevels w h bs
-      reconstructed = dwtInverseMulti numLevels w h finalLL levels
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
   in (reconstructed, remaining)
 
 -- | Deserialize all channels from varint-packed bytes.
@@ -283,7 +357,10 @@ deserializeAllChannels numLevels w h numCh bs = go numCh bs
 deserializeChannel :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
 deserializeChannel numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffs numLevels w h bs
-      reconstructed = dwtInverseMulti numLevels w h finalLL levels
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
   in (reconstructed, remaining)
 
 -- | Deserialize wavelet coefficients from a ByteString.
