@@ -6,6 +6,7 @@ module Sigil
   , module Sigil.Codec.ANS
   , module Sigil.Codec.ColorTransform
   , module Sigil.Codec.Wavelet
+  , module Sigil.Codec.WaveletMut
   , module Sigil.IO.Reader
   , module Sigil.IO.Writer
   , module Sigil.IO.Convert
@@ -18,6 +19,7 @@ import Sigil.Codec.Pipeline
 import Sigil.Codec.ANS
 import Sigil.Codec.ColorTransform
 import Sigil.Codec.Wavelet
+import Sigil.Codec.WaveletMut
 import Sigil.IO.Reader
 import Sigil.IO.Writer
 import Sigil.IO.Convert

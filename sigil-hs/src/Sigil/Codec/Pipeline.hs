@@ -11,13 +11,15 @@ import Data.Int (Int32)
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import qualified Codec.Compression.Zlib as Z
 
 import Sigil.Core.Types
 import Sigil.Core.Error (SigilError(..))
 import Sigil.Codec.ColorTransform (forwardRCT, inverseRCT)
-import Sigil.Codec.Wavelet (dwtForwardMulti, dwtInverseMulti, computeLevels)
+import Sigil.Codec.Wavelet (computeLevels)
+import Sigil.Codec.WaveletMut (dwtForwardMultiMut, dwtInverseMultiMut)
 import Sigil.Codec.Serialize (packSubband, unpackSubband, packLLSubband, unpackLLSubband, encodeVarint, decodeVarint)
 
 ------------------------------------------------------------------------
@@ -184,7 +186,10 @@ serializeAllChannels numLevels w h chans =
 -- | Apply forward DWT to a channel and serialize the coefficients.
 serializeChannel :: Int -> Int -> Int -> Vector Int32 -> ByteString
 serializeChannel numLevels w h chan =
-  let (finalLL, levels) = dwtForwardMulti numLevels w h chan
+  let chanU = VU.convert chan :: VU.Vector Int32
+      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+      finalLL = V.convert finalLLU :: Vector Int32
+      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
   in serializeCoeffs finalLL levels
 
 -- | Serialize wavelet coefficients:
@@ -242,7 +247,10 @@ readLevelsVarint ((wLow, hLow, wHigh, hHigh) : rest) bs =
 -- | Serialize a channel using varint packing (v0.6).
 serializeChannelVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
 serializeChannelVarint numLevels w h chan =
-  let (finalLL, levels) = dwtForwardMulti numLevels w h chan
+  let chanU = VU.convert chan :: VU.Vector Int32
+      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+      finalLL = V.convert finalLLU :: Vector Int32
+      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
       levelSizes = computeLevelSizes numLevels w h
       (llW, llH) = case levelSizes of
                      [] -> (w, h)
@@ -258,7 +266,10 @@ serializeAllChannelsVarint numLevels w h chans =
 deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
 deserializeChannelVarint numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffsVarint numLevels w h bs
-      reconstructed = dwtInverseMulti numLevels w h finalLL levels
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
   in (reconstructed, remaining)
 
 -- | Deserialize all channels from varint-packed bytes.
@@ -283,7 +294,10 @@ deserializeAllChannels numLevels w h numCh bs = go numCh bs
 deserializeChannel :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
 deserializeChannel numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffs numLevels w h bs
-      reconstructed = dwtInverseMulti numLevels w h finalLL levels
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
   in (reconstructed, remaining)
 
 -- | Deserialize wavelet coefficients from a ByteString.
