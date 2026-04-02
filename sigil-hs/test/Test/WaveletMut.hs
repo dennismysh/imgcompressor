@@ -6,8 +6,11 @@ import Data.Int (Int32)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 
-import Sigil.Codec.Wavelet (lift53Forward1D, lift53Inverse1D, dwt2DForward, dwt2DInverse)
-import Sigil.Codec.WaveletMut (lift53Forward1DMut, lift53Inverse1DMut, dwt2DForwardMut, dwt2DInverseMut)
+import Sigil.Codec.Wavelet (lift53Forward1D, lift53Inverse1D, dwt2DForward, dwt2DInverse,
+                             dwtForwardMulti, dwtInverseMulti, computeLevels)
+import Sigil.Codec.WaveletMut (lift53Forward1DMut, lift53Inverse1DMut,
+                                dwt2DForwardMut, dwt2DInverseMut,
+                                dwtForwardMultiMut, dwtInverseMultiMut)
 
 toBoxed :: VU.Vector Int32 -> V.Vector Int32
 toBoxed = V.convert
@@ -69,3 +72,31 @@ spec = describe "WaveletMut" $ do
                 (ll, lh, hl, hh) = dwt2DForwardMut w h vu
                 result = dwt2DInverseMut w h (ll, lh, hl, hh)
             in result === vu
+
+  describe "Multi-level DWT equivalence" $ do
+    it "forward matches immutable for arbitrary multi-level" $ property $
+      forAll (choose (4, 16 :: Int)) $ \w ->
+        forAll (choose (4, 16 :: Int)) $ \h ->
+          let lvls = computeLevels w h
+          in forAll (vectorOf (w * h) (choose (-500, 500) :: Gen Int32)) $ \xs ->
+               let vRef = V.fromList xs
+                   vMut = VU.fromList xs
+                   (llRef, bandsRef) = dwtForwardMulti lvls w h vRef
+                   (llMut, bandsMut) = dwtForwardMultiMut lvls w h vMut
+               in conjoin $
+                    (toBoxed llMut === llRef) :
+                    [ conjoin [ toBoxed lhM === lhR
+                              , toBoxed hlM === hlR
+                              , toBoxed hhM === hhR ]
+                    | ((lhR, hlR, hhR), (lhM, hlM, hhM)) <- zip bandsRef bandsMut
+                    ]
+
+    it "round-trips arbitrary multi-level" $ property $
+      forAll (choose (4, 16 :: Int)) $ \w ->
+        forAll (choose (4, 16 :: Int)) $ \h ->
+          let lvls = computeLevels w h
+          in forAll (vectorOf (w * h) (choose (-500, 500) :: Gen Int32)) $ \xs ->
+               let vu = VU.fromList xs
+                   (ll, bands) = dwtForwardMultiMut lvls w h vu
+                   result = dwtInverseMultiMut lvls w h ll bands
+               in result === vu

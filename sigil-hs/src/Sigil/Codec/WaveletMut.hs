@@ -3,6 +3,8 @@ module Sigil.Codec.WaveletMut
   , lift53Inverse1DMut
   , dwt2DForwardMut
   , dwt2DInverseMut
+  , dwtForwardMultiMut
+  , dwtInverseMultiMut
   ) where
 
 import Control.Monad (forM_)
@@ -155,3 +157,28 @@ dwt2DInverseMut w h (ll, lh, hl, hh)
         forM_ [0 .. w - 1] $ \x ->
           VUM.unsafeWrite result (y * w + x) (row `VU.unsafeIndex` x)
       VU.unsafeFreeze result
+
+dwtForwardMultiMut :: Int -> Int -> Int -> VU.Vector Int32
+                   -> (VU.Vector Int32, [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)])
+dwtForwardMultiMut levels w h arr = go levels w h arr []
+  where
+    go 0 _ _ ll bands = (ll, bands)
+    go n cw ch img bands =
+      let (ll, lh, hl, hh) = dwt2DForwardMut cw ch img
+          cw' = (cw + 1) `div` 2
+          ch' = (ch + 1) `div` 2
+      in go (n - 1) cw' ch' ll ((lh, hl, hh) : bands)
+
+dwtInverseMultiMut :: Int -> Int -> Int -> VU.Vector Int32
+                   -> [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)]
+                   -> VU.Vector Int32
+dwtInverseMultiMut levels w h ll bands = go levels sizes ll bands
+  where
+    sizes = reverse $ take levels $ iterate shrink (w, h)
+    shrink (cw, ch) = ((cw + 1) `div` 2, (ch + 1) `div` 2)
+
+    go _ [] currentLL [] = currentLL
+    go _ ((cw, ch) : rest) currentLL ((lh, hl, hh) : restBands) =
+      let reconstructed = dwt2DInverseMut cw ch (currentLL, lh, hl, hh)
+      in go (levels - 1) rest reconstructed restBands
+    go _ _ currentLL _ = currentLL
