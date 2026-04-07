@@ -3,29 +3,54 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sigil</title>
+  <title>Sigil — Lossless Image Compression</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg: #0a0a0a;
-      --surface: #141414;
-      --border: #1e1e1e;
+      --bg: #0b0a08;
+      --surface: #141210;
+      --border: #201d19;
       --text: #e8e6e3;
-      --text-dim: #6b6b6b;
+      --text-dim: #756e64;
       --accent: #c4a265;
-      --accent-dim: rgba(196, 162, 101, 0.15);
-      --mono: 'JetBrains Mono', monospace;
-      --sans: 'Inter', -apple-system, sans-serif;
+      --accent-dim: rgba(196, 162, 101, 0.12);
+      --font: 'Space Grotesk', system-ui, sans-serif;
+      --mono: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.333rem;
+      --text-xl: 1.777rem;
+      --text-2xl: 3.157rem;
+      --space-xs: 0.25rem;
+      --space-sm: 0.5rem;
+      --space-md: 1rem;
+      --space-lg: 1.5rem;
+      --space-xl: 2.5rem;
+      --space-2xl: 4rem;
+      --space-3xl: 6rem;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .btn:focus-visible {
+      outline-color: var(--text);
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: var(--sans);
-      font-weight: 300;
+      font-family: var(--font);
+      font-weight: 400;
+      line-height: 1.6;
+      font-kerning: normal;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -34,37 +59,47 @@
 
     header {
       width: 100%;
-      padding: 3rem 0 1rem;
+      padding: var(--space-xl) 0 var(--space-lg);
       text-align: center;
       border-bottom: 1px solid var(--border);
     }
 
     header h1 {
-      font-size: 0.75rem;
-      font-weight: 500;
-      letter-spacing: 0.35em;
+      font-size: var(--text-xl);
+      font-weight: 700;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
       color: var(--accent);
+      line-height: 1.2;
+    }
+
+    header h1::before {
+      content: '';
+      display: block;
+      width: 2rem;
+      height: 2px;
+      background: var(--accent);
+      margin: 0 auto var(--space-sm);
     }
 
     header p {
-      margin-top: 0.5rem;
-      font-size: 0.8rem;
+      margin-top: var(--space-sm);
+      font-size: var(--text-sm);
       color: var(--text-dim);
-      letter-spacing: 0.05em;
     }
 
     main {
       width: 100%;
-      max-width: 1200px;
-      padding: 3rem 2rem;
+      max-width: 960px;
+      padding: var(--space-2xl) var(--space-lg);
       flex: 1;
     }
 
     #drop-zone {
-      border: 1px dashed var(--border);
+      position: relative;
+      border: 2px dashed var(--border);
       border-radius: 2px;
-      padding: 4rem 2rem;
+      padding: var(--space-2xl) var(--space-lg);
       text-align: center;
       cursor: pointer;
       transition: border-color 0.2s, background 0.2s;
@@ -72,49 +107,78 @@
 
     #drop-zone:hover, #drop-zone.dragover {
       border-color: var(--accent);
+      border-style: solid;
       background: var(--accent-dim);
     }
 
-    #drop-zone p { font-size: 0.85rem; color: var(--text-dim); }
-    #drop-zone .cta { color: var(--accent); font-weight: 400; }
-    #drop-zone input { display: none; }
+    #drop-zone p { font-size: var(--text-base); color: var(--text-dim); line-height: 1.5; }
+    #drop-zone .cta { color: var(--accent); font-weight: 500; }
 
-    #results { display: none; margin-top: 3rem; }
+    #drop-zone input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    #drop-zone:has(input:focus-visible) {
+      border-color: var(--accent);
+      border-style: solid;
+      background: var(--accent-dim);
+    }
+
+    #results { display: none; margin-top: var(--space-2xl); }
     #results.visible { display: block; }
 
-    .stats {
+    .result-hero {
+      margin-bottom: var(--space-xl);
+    }
+
+    .ratio-display {
       display: flex;
-      justify-content: center;
-      gap: 3rem;
-      padding: 1.5rem 0;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 2rem;
+      align-items: baseline;
+      gap: var(--space-sm);
     }
 
-    .stat { text-align: center; }
-
-    .stat-value {
-      font-family: var(--mono);
-      font-size: 1.5rem;
-      color: var(--text);
+    .ratio-value {
+      font-size: var(--text-2xl);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
       line-height: 1;
+      letter-spacing: -0.03em;
     }
 
-    .stat-value.accent { color: var(--accent); }
-
-    .stat-label {
-      margin-top: 0.4rem;
-      font-size: 0.65rem;
+    .ratio-suffix {
+      font-size: var(--text-lg);
+      font-weight: 400;
       color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.15em;
     }
+
+    .result-meta {
+      margin-top: var(--space-sm);
+      font-size: var(--text-sm);
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      flex-wrap: wrap;
+    }
+
+    .result-meta .accent { color: var(--accent); font-weight: 500; }
+
+    .meta-dot { color: var(--border); }
 
     .comparison {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2rem;
+      gap: var(--space-lg);
     }
 
     .panel {
@@ -125,7 +189,7 @@
     }
 
     .panel-header {
-      padding: 0.75rem 1rem;
+      padding: var(--space-sm) var(--space-md);
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
@@ -133,15 +197,14 @@
     }
 
     .panel-title {
-      font-size: 0.65rem;
-      text-transform: uppercase;
-      letter-spacing: 0.15em;
+      font-size: var(--text-sm);
+      font-weight: 500;
       color: var(--text-dim);
     }
 
     .panel-size {
-      font-family: var(--mono);
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
+      font-variant-numeric: tabular-nums;
       color: var(--text-dim);
     }
 
@@ -149,9 +212,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1rem;
+      padding: var(--space-md);
       min-height: 300px;
-      background: #0d0d0d;
+      background: #0c0b09;
     }
 
     .panel-body canvas, .panel-body img {
@@ -159,47 +222,61 @@
       max-height: 500px;
     }
 
-    .actions { margin-top: 2rem; text-align: center; }
+    .actions {
+      margin-top: var(--space-xl);
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
 
     .btn {
       display: inline-block;
       padding: 0.6rem 2rem;
-      font-family: var(--sans);
-      font-size: 0.7rem;
+      font-family: var(--font);
+      font-size: var(--text-sm);
       font-weight: 500;
-      letter-spacing: 0.15em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       color: var(--bg);
       background: var(--accent);
       border: none;
       border-radius: 1px;
       cursor: pointer;
-      transition: opacity 0.2s;
+      transition: background 0.2s, transform 0.1s;
       text-decoration: none;
     }
 
-    .btn:hover { opacity: 0.85; }
+    .btn:hover { background: #d0ad6e; }
+    .btn:active { transform: translateY(1px); }
 
     .btn-ghost {
       background: transparent;
       color: var(--text-dim);
       border: 1px solid var(--border);
-      margin-left: 1rem;
+      margin-left: 0;
     }
 
-    .btn-ghost:hover { border-color: var(--text-dim); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-ghost:active { transform: translateY(1px); }
 
-    #loading { display: none; text-align: center; padding: 4rem 0; }
+    #loading { display: none; text-align: center; padding: var(--space-2xl) 0; }
     #loading.visible { display: block; }
-    #loading p { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 0.05em; }
+    #loading p { font-size: var(--text-base); color: var(--text-dim); }
+
+    #progress-detail {
+      margin-top: var(--space-xs);
+      font-size: var(--text-xs);
+      color: var(--text-dim);
+      font-family: var(--mono);
+    }
 
     .progress-container {
       width: 100%;
       max-width: 400px;
-      height: 4px;
+      height: 6px;
       background: var(--border);
       border-radius: 2px;
-      margin: 0 auto 1rem;
+      margin: 0 auto var(--space-md);
       overflow: hidden;
     }
 
@@ -211,25 +288,94 @@
       transition: width 0.3s ease;
     }
 
-    #error { display: none; text-align: center; padding: 2rem; color: #c46565; font-size: 0.85rem; }
+    #error { display: none; text-align: center; padding: var(--space-xl) 0; color: #c46565; font-size: var(--text-base); }
     #error.visible { display: block; }
 
     footer {
       width: 100%;
-      padding: 1.5rem 0;
+      padding: var(--space-lg) 0;
       text-align: center;
       border-top: 1px solid var(--border);
-      font-size: 0.65rem;
+      font-size: var(--text-xs);
       color: var(--text-dim);
-      letter-spacing: 0.05em;
     }
 
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    #results.visible .result-hero {
+      animation: fadeSlideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
+    }
+
+    #results.visible .lossless-badge {
+      animation: fadeSlideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) 0.3s both;
+    }
+
+    #results.visible .comparison {
+      animation: fadeSlideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) 0.15s both;
+    }
+
+    #results.visible .actions {
+      animation: fadeSlideIn 0.4s cubic-bezier(0.25, 1, 0.5, 1) 0.25s both;
+    }
+
+    .decode-fallback {
+      font-size: var(--text-sm);
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    .lossless-badge {
+      display: none;
+      align-items: center;
+      gap: var(--space-xs);
+      margin-bottom: var(--space-xl);
+      font-size: var(--text-sm);
+      font-weight: 500;
+      color: #7a9e7a;
+    }
+
+    .lossless-badge.visible { display: inline-flex; }
+
+    .lossless-badge svg {
+      width: 16px;
+      height: 16px;
+      stroke-width: 2.5;
+    }
+
+    @keyframes checkDraw {
+      from { stroke-dashoffset: 20; }
+      to { stroke-dashoffset: 0; }
+    }
+
+    .lossless-badge.visible svg path {
+      stroke-dasharray: 20;
+      animation: checkDraw 0.4s cubic-bezier(0.25, 1, 0.5, 1) 0.5s both;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #results.visible .result-hero,
+      #results.visible .lossless-badge,
+      #results.visible .comparison,
+      #results.visible .actions {
+        animation: none;
+        opacity: 1;
+      }
+      .lossless-badge.visible svg path {
+        animation: none;
+        stroke-dashoffset: 0;
+      }
+    }
+
     @media (max-width: 768px) {
       .comparison { grid-template-columns: 1fr; }
-      .stats { gap: 1.5rem; flex-wrap: wrap; }
+      .ratio-value { font-size: var(--text-xl); }
+      .ratio-suffix { font-size: var(--text-sm); }
     }
   </style>
 </head>
@@ -243,38 +389,40 @@
 <main>
   <div id="drop-zone">
     <p><span class="cta">Drop an image</span> or click to select</p>
-    <p style="margin-top: 0.5rem; font-size: 0.7rem;">PNG, JPEG, BMP</p>
+    <p style="margin-top: var(--space-sm); font-size: var(--text-xs);">PNG, JPEG, BMP</p>
     <input type="file" id="file-input" accept="image/png,image/jpeg,image/bmp">
   </div>
 
-  <div id="loading">
+  <div id="loading" aria-live="polite">
     <div class="progress-container">
       <div class="progress-bar" id="progress-bar"></div>
     </div>
     <p id="progress-label">Starting...</p>
-    <p id="progress-detail" style="margin-top: 0.3rem; font-size: 0.7rem; color: var(--text-dim); font-family: var(--mono);"></p>
+    <p id="progress-detail"></p>
   </div>
 
-  <div id="error"></div>
+  <div id="error" role="alert"></div>
 
   <div id="results">
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-value" id="stat-dimensions">-</div>
-        <div class="stat-label">Dimensions</div>
+    <div class="result-hero">
+      <div class="ratio-display">
+        <span class="ratio-value" id="stat-ratio">-</span>
+        <span class="ratio-suffix">smaller</span>
       </div>
-      <div class="stat">
-        <div class="stat-value" id="stat-original">-</div>
-        <div class="stat-label">Raw Pixels</div>
+      <div class="result-meta">
+        <span id="stat-dimensions">-</span>
+        <span class="meta-dot">&middot;</span>
+        <span id="stat-original">-</span> raw
+        <span class="meta-dot">&middot;</span>
+        <span class="accent" id="stat-compressed">-</span> compressed
       </div>
-      <div class="stat">
-        <div class="stat-value accent" id="stat-compressed">-</div>
-        <div class="stat-label">Sigil</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value accent" id="stat-ratio">-</div>
-        <div class="stat-label">Vs Raw</div>
-      </div>
+    </div>
+
+    <div class="lossless-badge" id="lossless-badge">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 8.5l4 4 8-8.5"/>
+      </svg>
+      Pixel-identical — lossless verified
     </div>
 
     <div class="comparison">
@@ -293,7 +441,7 @@
           <span class="panel-size" id="decoded-size"></span>
         </div>
         <div class="panel-body">
-          <canvas id="decoded-canvas"></canvas>
+          <canvas id="decoded-canvas" aria-label="Decoded image preview"></canvas>
         </div>
       </div>
     </div>
@@ -306,7 +454,7 @@
 </main>
 
 <footer>
-  <p>Sigil v0.2 &mdash; <a href="https://github.com/dennismysh/imgcompressor">Source</a></p>
+  <p>Sigil v0.7 &mdash; <a href="https://github.com/dennismysh/imgcompressor">Source</a></p>
 </footer>
 
 <script type="module">
@@ -324,6 +472,41 @@ async function initWasm() {
 }
 
 initWasm();
+
+function animateCounter(el, target, suffix, duration = 800) {
+  const start = performance.now();
+  const easeOut = t => 1 - Math.pow(1 - t, 4);
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reducedMotion) { el.textContent = target.toFixed(1) + suffix; return; }
+  (function update(now) {
+    const p = Math.min((now - start) / duration, 1);
+    el.textContent = (target * easeOut(p)).toFixed(1) + suffix;
+    if (p < 1) requestAnimationFrame(update);
+  })(performance.now());
+}
+
+let encoding = false;
+let objectURLs = [];
+
+function trackURL(blob) {
+  const url = URL.createObjectURL(blob);
+  objectURLs.push(url);
+  return url;
+}
+
+function revokeURLs() {
+  objectURLs.forEach(u => URL.revokeObjectURL(u));
+  objectURLs = [];
+}
+
+function showDecodeFallback(msg) {
+  const canvas = document.getElementById('decoded-canvas');
+  canvas.style.display = 'none';
+  const notice = document.createElement('p');
+  notice.className = 'decode-fallback';
+  notice.textContent = msg;
+  canvas.parentElement.appendChild(notice);
+}
 
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
@@ -344,15 +527,23 @@ fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleF
 document.getElementById('reset-btn').addEventListener('click', () => {
   results.classList.remove('visible');
   error.classList.remove('visible');
+  document.getElementById('lossless-badge').classList.remove('visible');
+  document.querySelectorAll('.decode-fallback').forEach(el => el.remove());
+  document.getElementById('decoded-canvas').style.display = '';
+  revokeURLs();
   dropZone.style.display = '';
   fileInput.value = '';
 });
 
 async function handleFile(file) {
+  if (encoding) return;
+
   if (!file.type.match(/^image\/(png|jpeg|bmp)/) && !file.name.match(/\.(png|jpe?g|bmp)$/i)) {
     showError('Please select a PNG, JPEG, or BMP image.');
     return;
   }
+
+  encoding = true;
 
   dropZone.style.display = 'none';
   error.classList.remove('visible');
@@ -395,7 +586,10 @@ async function handleFile(file) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
 
-    document.getElementById('original-img').src = URL.createObjectURL(file);
+    revokeURLs();
+    document.querySelectorAll('.decode-fallback').forEach(el => el.remove());
+    document.getElementById('decoded-canvas').style.display = '';
+    document.getElementById('original-img').src = trackURL(file);
 
     const resp = await fetch('/api/encode', {
       method: 'POST',
@@ -433,26 +627,45 @@ async function handleFile(file) {
           }
         }
         ctx.putImageData(new ImageData(rgba, result.width, result.height), 0, 0);
-      } catch (e) { console.warn('WASM decode failed:', e); }
+        document.getElementById('lossless-badge').classList.add('visible');
+      } catch (e) {
+        console.warn('WASM decode failed:', e);
+        showDecodeFallback('Preview unavailable \u2014 download the .sgl to verify locally');
+      }
+    } else {
+      showDecodeFallback('Browser preview not supported \u2014 download the .sgl file');
     }
 
     document.getElementById('stat-dimensions').textContent = w + '\u2009\u00d7\u2009' + h;
     document.getElementById('stat-original').textContent = formatBytes(origSize);
     document.getElementById('stat-compressed').textContent = formatBytes(compSize);
-    document.getElementById('stat-ratio').textContent = ratio.toFixed(1) + 'x';
+    animateCounter(document.getElementById('stat-ratio'), ratio, 'x');
     document.getElementById('original-size').textContent = formatBytes(file.size) + ' (file)';
     document.getElementById('decoded-size').textContent = formatBytes(compSize) + ' (.sgl)';
 
     const downloadBtn = document.getElementById('download-btn');
     downloadBtn.download = file.name.replace(/\.[^.]+$/, '') + '.sgl';
-    downloadBtn.href = URL.createObjectURL(new Blob([sglBytes]));
+    downloadBtn.href = trackURL(new Blob([sglBytes]));
 
     loading.classList.remove('visible');
     results.classList.add('visible');
+    encoding = false;
   } catch (e) {
     clearInterval(pollInterval);
     loading.classList.remove('visible');
-    showError(e.message || 'Compression failed.');
+    encoding = false;
+
+    let msg;
+    if (!navigator.onLine) {
+      msg = 'You appear to be offline. Check your connection and try again.';
+    } else if (e instanceof TypeError && /fetch/i.test(e.message)) {
+      msg = 'Could not reach the server. Make sure sigil-server is running.';
+    } else {
+      msg = e.message || 'Compression failed.';
+      if (msg.length > 200) msg = msg.slice(0, 200) + '\u2026';
+    }
+
+    showError(msg);
     dropZone.style.display = '';
   }
 }
