@@ -599,7 +599,12 @@ async function handleFile(file) {
 
     clearInterval(pollInterval);
 
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(body.trimStart().startsWith('<')
+        ? 'Server returned an error (' + resp.status + '). Try a smaller image or check the server.'
+        : body);
+    }
 
     const sglBytes = new Uint8Array(await resp.arrayBuffer());
 
