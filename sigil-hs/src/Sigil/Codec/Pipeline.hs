@@ -108,23 +108,41 @@ compressWithProgress report hdr img = do
     ]
 
   report "serialize" 80 Nothing
-  let coeffBytes = case compressionMethod hdr of
-        DwtLosslessVarint ->
-          let levelSizes = computeLevelSizes numLevels w h
-              (llW, llH) = case levelSizes of
-                             [] -> (w, h)
-                             ((lw, lh, _, _) : _) -> (lw, lh)
-          in BS.concat $ map (\(finalLL, levels) ->
-               serializeCoeffsVarint llW llH finalLL levels) dwtResults
-        _ ->
-          BS.concat $ map (\(finalLL, levels) ->
-            serializeCoeffs finalLL levels) dwtResults
-
-  report "compress" 90 Nothing
-  let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
-      ctByte = if useRCT then 1 else 0 :: Word8
-      numChByte  = fromIntegral (length int32Channels) :: Word8
-      result = BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
+  let ctByte    = if useRCT then 1 else 0 :: Word8
+      numChByte = fromIntegral (length int32Channels) :: Word8
+  result <- case compressionMethod hdr of
+    DwtANS -> do
+      let levelSizes = computeLevelSizes numLevels w h
+          (llW, llH) = case levelSizes of
+                         [] -> (w, h)
+                         ((lw, lh, _, _) : _) -> (lw, lh)
+          coeffBytes = BS.concat $ map (\(finalLL, levels) ->
+            let llResiduals = predictLL llW llH finalLL
+                llBlob      = encodeSubband llResiduals
+                detailBlobs = concatMap (\(lh, hl, hh) ->
+                  [encodeSubband lh, encodeSubband hl, encodeSubband hh]) levels
+                allBlobs    = llBlob : detailBlobs
+            in BS.concat $ map (\blob ->
+                 encodeVarint (fromIntegral (BS.length blob)) <> blob) allBlobs
+            ) dwtResults
+          llPred = 4 :: Word8  -- Paeth
+      report "compress" 90 Nothing
+      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte, llPred] <> coeffBytes
+    _ -> do
+      let coeffBytes = case compressionMethod hdr of
+            DwtLosslessVarint ->
+              let levelSizes = computeLevelSizes numLevels w h
+                  (llW, llH) = case levelSizes of
+                                 [] -> (w, h)
+                                 ((lw, lh, _, _) : _) -> (lw, lh)
+              in BS.concat $ map (\(finalLL, levels) ->
+                   serializeCoeffsVarint llW llH finalLL levels) dwtResults
+            _ ->
+              BS.concat $ map (\(finalLL, levels) ->
+                serializeCoeffs finalLL levels) dwtResults
+      report "compress" 90 Nothing
+      let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
 
   report "done" 100 Nothing
   pure result
