@@ -28,6 +28,7 @@ pub enum CompressionMethod {
     Legacy,              // 0
     DwtLossless,         // 1
     DwtLosslessVarint,   // 2
+    DwtANS,              // 3
 }
 
 impl CompressionMethod {
@@ -36,6 +37,7 @@ impl CompressionMethod {
             0 => Some(CompressionMethod::Legacy),
             1 => Some(CompressionMethod::DwtLossless),
             2 => Some(CompressionMethod::DwtLosslessVarint),
+            3 => Some(CompressionMethod::DwtANS),
             _ => None,
         }
     }

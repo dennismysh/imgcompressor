@@ -29,6 +29,8 @@ library
       Sigil.Codec.Wavelet
       Sigil.Codec.WaveletMut
       Sigil.Codec.Serialize
+      Sigil.Codec.MagClass
+      Sigil.Codec.SubbandCoder
   other-modules:
       Paths_sigil_hs
   hs-source-dirs:
@@ -124,6 +126,8 @@ test-suite sigil-hs-test
       Test.ColorTransform
       Test.Conformance
       Test.Serialize
+      Test.MagClass
+      Test.SubbandCoder
   hs-source-dirs:
       test
   default-extensions:

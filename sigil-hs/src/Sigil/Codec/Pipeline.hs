@@ -16,6 +16,7 @@ import qualified Data.Text as T
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Unboxed as VU
 
 import qualified Codec.Compression.Zlib as Z
@@ -52,16 +53,23 @@ compress hdr img =
       (useRCT, int32Channels) = toInt32Channels (colorSpace hdr) w h chanVecs
       -- Determine DWT levels
       numLevels = computeLevels w h
-      -- Apply DWT per channel and serialize
-      coeffBytes = case compressionMethod hdr of
-        DwtLosslessVarint -> serializeAllChannelsVarint numLevels w h int32Channels
-        _                 -> serializeAllChannels numLevels w h int32Channels
-      -- Compress
-      compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
       -- Color transform byte
       ctByte = if useRCT then 1 else 0 :: Word8
       numCh  = fromIntegral (length int32Channels) :: Word8
-  in BS.pack [fromIntegral numLevels, ctByte, numCh] <> compressed
+  in case compressionMethod hdr of
+       DwtANS ->
+         -- Paeth LL prediction + varint + zlib
+         let coeffBytes = serializeAllChannelsPaethVarint numLevels w h int32Channels
+             compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+             llPred = 4 :: Word8  -- Paeth
+         in BS.pack [fromIntegral numLevels, ctByte, numCh, llPred] <> compressed
+       _ ->
+         -- Legacy zlib path (DwtLossless / DwtLosslessVarint)
+         let coeffBytes = case compressionMethod hdr of
+               DwtLosslessVarint -> serializeAllChannelsVarint numLevels w h int32Channels
+               _                 -> serializeAllChannels numLevels w h int32Channels
+             compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+         in BS.pack [fromIntegral numLevels, ctByte, numCh] <> compressed
 
 -- | Progress callback: stage name, percentage (0-100), optional detail text.
 type ProgressCallback = Text -> Int -> Maybe Text -> IO ()
@@ -100,23 +108,41 @@ compressWithProgress report hdr img = do
     ]
 
   report "serialize" 80 Nothing
-  let coeffBytes = case compressionMethod hdr of
-        DwtLosslessVarint ->
-          let levelSizes = computeLevelSizes numLevels w h
-              (llW, llH) = case levelSizes of
-                             [] -> (w, h)
-                             ((lw, lh, _, _) : _) -> (lw, lh)
-          in BS.concat $ map (\(finalLL, levels) ->
-               serializeCoeffsVarint llW llH finalLL levels) dwtResults
-        _ ->
-          BS.concat $ map (\(finalLL, levels) ->
-            serializeCoeffs finalLL levels) dwtResults
-
-  report "compress" 90 Nothing
-  let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
-      ctByte = if useRCT then 1 else 0 :: Word8
-      numChByte  = fromIntegral (length int32Channels) :: Word8
-      result = BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
+  let ctByte    = if useRCT then 1 else 0 :: Word8
+      numChByte = fromIntegral (length int32Channels) :: Word8
+  result <- case compressionMethod hdr of
+    DwtANS -> do
+      let levelSizes = computeLevelSizes numLevels w h
+          (llW, llH) = case levelSizes of
+                         [] -> (w, h)
+                         ((lw, lh, _, _) : _) -> (lw, lh)
+          coeffBytes = BS.concat $ map (\(finalLL, levels) ->
+            let llResiduals = predictLL llW llH finalLL
+                dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
+                llBytes = packSubband llResiduals
+                detailBytes = concatMap (\(lh, hl, hh) ->
+                  [packSubband lh, packSubband hl, packSubband hh]) levels
+            in BS.concat (dimBytes : llBytes : detailBytes)
+            ) dwtResults
+          llPred = 4 :: Word8  -- Paeth
+      report "compress" 90 Nothing
+      let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte, llPred] <> compressed
+    _ -> do
+      let coeffBytes = case compressionMethod hdr of
+            DwtLosslessVarint ->
+              let levelSizes = computeLevelSizes numLevels w h
+                  (llW, llH) = case levelSizes of
+                                 [] -> (w, h)
+                                 ((lw, lh, _, _) : _) -> (lw, lh)
+              in BS.concat $ map (\(finalLL, levels) ->
+                   serializeCoeffsVarint llW llH finalLL levels) dwtResults
+            _ ->
+              BS.concat $ map (\(finalLL, levels) ->
+                serializeCoeffs finalLL levels) dwtResults
+      report "compress" 90 Nothing
+      let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte] <> compressed
 
   report "done" 100 Nothing
   pure result
@@ -125,6 +151,7 @@ compressWithProgress report hdr img = do
 decompress :: Header -> ByteString -> Either SigilError Image
 decompress hdr bs
   | compressionMethod hdr == Legacy = Left (IoError "Legacy decompression not supported in Pipeline")
+  | compressionMethod hdr == DwtANS = decompressDwtANS hdr bs
   | BS.length bs < 3 = Left TruncatedInput
   | otherwise =
     let w  = fromIntegral (width hdr)  :: Int
@@ -238,6 +265,53 @@ clampWord8 x
   | otherwise = fromIntegral x
 
 ------------------------------------------------------------------------
+-- LL sub-band prediction (Paeth)
+------------------------------------------------------------------------
+
+-- | Paeth predictor for Int32 values.
+paethInt32 :: Int32 -> Int32 -> Int32 -> Int32
+paethInt32 a b c =
+  let p  = a + b - c
+      pa = abs (p - a)
+      pb = abs (p - b)
+      pc = abs (p - c)
+  in if pa <= pb && pa <= pc then a
+     else if pb <= pc then b
+     else c
+
+-- | Forward Paeth prediction on LL sub-band (returns residuals).
+predictLL :: Int -> Int -> Vector Int32 -> Vector Int32
+predictLL w h v = V.generate (w * h) $ \idx ->
+  let x = idx `mod` w
+      y = idx `div` w
+      cur = v V.! idx
+      a = if x > 0 then v V.! (idx - 1) else 0
+      b = if y > 0 then v V.! (idx - w) else 0
+      c = if x > 0 && y > 0 then v V.! (idx - w - 1) else 0
+      predicted = paethInt32 a b c
+  in cur - predicted
+
+-- | Inverse Paeth prediction on LL residuals (returns original values).
+-- Must be sequential since each output depends on previous outputs.
+unpredictLL :: Int -> Int -> Vector Int32 -> Vector Int32
+unpredictLL w h residuals = V.create $ do
+  mv <- VM.new (w * h)
+  let go idx
+        | idx >= w * h = pure ()
+        | otherwise = do
+            let x = idx `mod` w
+                y = idx `div` w
+            a <- if x > 0 then VM.read mv (idx - 1) else pure 0
+            b <- if y > 0 then VM.read mv (idx - w) else pure 0
+            c <- if x > 0 && y > 0 then VM.read mv (idx - w - 1) else pure 0
+            let predicted = paethInt32 a b c
+                val = (residuals V.! idx) + predicted
+            VM.write mv idx val
+            go (idx + 1)
+  go 0
+  pure mv
+
+------------------------------------------------------------------------
 -- DWT + serialization
 ------------------------------------------------------------------------
 
@@ -324,6 +398,91 @@ serializeChannelVarint numLevels w h chan =
 serializeAllChannelsVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
 serializeAllChannelsVarint numLevels w h chans =
   BS.concat $ map (serializeChannelVarint numLevels w h) chans
+
+------------------------------------------------------------------------
+-- DwtANS serialization (v0.8) — Paeth LL + varint + zlib
+------------------------------------------------------------------------
+
+-- | Serialize all channels with Paeth-predicted LL using varint packing.
+serializeAllChannelsPaethVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannelsPaethVarint numLevels w h chans =
+  BS.concat $ map (serializeChannelPaethVarint numLevels w h) chans
+
+-- | Serialize a single channel: DWT, Paeth-predict LL, varint-encode.
+serializeChannelPaethVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannelPaethVarint numLevels w h chan =
+  let chanU = VU.convert chan :: VU.Vector Int32
+      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
+      finalLL = V.convert finalLLU :: Vector Int32
+      levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
+      levelSizes = computeLevelSizes numLevels w h
+      (llW, llH) = case levelSizes of
+                     [] -> (w, h)
+                     ((lw, lh, _, _) : _) -> (lw, lh)
+      -- Paeth-predict the LL sub-band, then varint-encode
+      llResiduals = predictLL llW llH finalLL
+      dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
+      llBytes = packSubband llResiduals
+      -- Detail sub-bands: varint-encode directly (same as DwtLosslessVarint)
+      levelBytes = concatMap (\(lh, hl, hh) ->
+        [packSubband lh, packSubband hl, packSubband hh]) levels
+  in BS.concat (dimBytes : llBytes : levelBytes)
+
+------------------------------------------------------------------------
+-- DwtANS deserialization (v0.8) — Paeth LL + varint + zlib
+------------------------------------------------------------------------
+
+-- | Decompress a DwtANS payload (Paeth LL + varint + zlib).
+decompressDwtANS :: Header -> ByteString -> Either SigilError Image
+decompressDwtANS hdr bs
+  | BS.length bs < 4 = Left TruncatedInput
+  | otherwise =
+    let w  = fromIntegral (width hdr) :: Int
+        h  = fromIntegral (height hdr) :: Int
+        numLevels = fromIntegral (BS.index bs 0) :: Int
+        ctByte    = BS.index bs 1
+        numCh     = fromIntegral (BS.index bs 2) :: Int
+        _llPred   = BS.index bs 3
+        useRCT    = ctByte == 1
+        compressedData = BS.drop 4 bs
+        decompressed = BL.toStrict $ Z.decompress $ BL.fromStrict compressedData
+        int32Channels = deserializeAllChannelsPaethVarint numLevels w h numCh decompressed
+        word8Channels = fromInt32Channels (colorSpace hdr) w h useRCT int32Channels
+        ch = channels (colorSpace hdr)
+        interleaved = interleaveChannels word8Channels (w * ch)
+        rows = V.fromList [ V.slice (y * w * ch) (w * ch) interleaved | y <- [0 .. h - 1] ]
+    in Right rows
+
+-- | Deserialize all channels from Paeth+varint encoded bytes.
+deserializeAllChannelsPaethVarint :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannelsPaethVarint numLevels w h numCh bs0 = go numCh bs0
+  where
+    go 0 _ = []
+    go n remaining =
+      let (chan, rest) = deserializeChannelPaethVarint numLevels w h remaining
+      in chan : go (n - 1) rest
+
+-- | Deserialize one channel: read LL dims, varint decode, inverse Paeth on LL, inverse DWT.
+deserializeChannelPaethVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannelPaethVarint numLevels w h bs0 =
+  let levelSizes = computeLevelSizes numLevels w h
+      -- Read explicit LL dimensions
+      (llW32, bs1) = decodeVarint bs0
+      (llH32, bs2) = decodeVarint bs1
+      llW = fromIntegral llW32 :: Int
+      llH = fromIntegral llH32 :: Int
+      llCount = llW * llH
+      -- Decode LL sub-band (varint), then inverse Paeth
+      (llResiduals, bs3) = unpackSubband llCount bs2
+      finalLL = unpredictLL llW llH (V.convert llResiduals)
+      -- Decode detail sub-bands (same as DwtLosslessVarint)
+      (levels, bsRest) = readLevelsVarint levelSizes bs3
+      -- Inverse DWT
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c') -> (VU.convert a, VU.convert b, VU.convert c')) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
+  in (reconstructed, bsRest)
 
 -- | Deserialize a single channel from varint-packed bytes, apply inverse DWT.
 deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)

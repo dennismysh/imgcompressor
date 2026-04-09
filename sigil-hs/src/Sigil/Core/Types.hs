@@ -52,18 +52,21 @@ data CompressionMethod
   = Legacy              -- ^ 0: old predict+zigzag (not produced by v0.5+ encoder)
   | DwtLossless         -- ^ 1: integer 5/3 wavelet + raw i32 + zlib (v0.5)
   | DwtLosslessVarint   -- ^ 2: integer 5/3 wavelet + zigzag/varint + zlib (v0.6)
+  | DwtANS              -- ^ 3: integer 5/3 wavelet + mag class + ANS (v0.8)
   deriving (Eq, Show, Enum, Bounded)
 
 compressionMethodFromByte :: Word8 -> Maybe CompressionMethod
 compressionMethodFromByte 0 = Just Legacy
 compressionMethodFromByte 1 = Just DwtLossless
 compressionMethodFromByte 2 = Just DwtLosslessVarint
+compressionMethodFromByte 3 = Just DwtANS
 compressionMethodFromByte _ = Nothing
 
 compressionMethodToByte :: CompressionMethod -> Word8
 compressionMethodToByte Legacy             = 0
 compressionMethodToByte DwtLossless        = 1
 compressionMethodToByte DwtLosslessVarint  = 2
+compressionMethodToByte DwtANS             = 3
 
 data Header = Header
   { width             :: Word32

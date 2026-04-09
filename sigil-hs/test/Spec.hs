@@ -24,6 +24,8 @@ import qualified Test.ColorTransform
 import qualified Test.Conformance
 import qualified Test.Serialize
 import qualified Test.WaveletMut
+import qualified Test.MagClass
+import qualified Test.SubbandCoder
 
 main :: IO ()
 main = hspec $ do
@@ -38,6 +40,8 @@ main = hspec $ do
   Test.Conformance.spec
   Test.Serialize.spec
   Test.WaveletMut.spec
+  Test.MagClass.spec
+  Test.SubbandCoder.spec
   describe "Chunk" $ do
     it "CRC32 of empty is 0x00000000" $
       crc32 BS.empty `shouldBe` 0x00000000
