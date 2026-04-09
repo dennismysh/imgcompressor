@@ -12,6 +12,7 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         CompressionMethod::Legacy            => decompress_legacy(header, sdat_payload),
         CompressionMethod::DwtLossless       => decompress_dwt(header, sdat_payload),
         CompressionMethod::DwtLosslessVarint => decompress_dwt_varint(header, sdat_payload),
+        CompressionMethod::DwtANS            => Err(SigilError::UnsupportedCompressionMethod(3)),
     }
 }
 

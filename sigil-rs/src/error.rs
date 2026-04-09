@@ -13,6 +13,7 @@ pub enum SigilError {
     InvalidBitDepth(u8),
     InvalidTag,
     MissingChunk(&'static str),
+    UnsupportedCompressionMethod(u8),
 }
 
 impl fmt::Display for SigilError {
@@ -29,6 +30,7 @@ impl fmt::Display for SigilError {
             SigilError::InvalidBitDepth(n) => write!(f, "invalid bit depth: {n}"),
             SigilError::InvalidTag => write!(f, "invalid chunk tag"),
             SigilError::MissingChunk(name) => write!(f, "missing required chunk: {name}"),
+            SigilError::UnsupportedCompressionMethod(n) => write!(f, "unsupported compression method: {n}"),
         }
     }
 }
