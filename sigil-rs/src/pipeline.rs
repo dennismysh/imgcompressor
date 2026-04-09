@@ -3,7 +3,6 @@ use crate::types::{Header, CompressionMethod, ColorSpace};
 use crate::color_transform::inverse_rct;
 use crate::wavelet::dwt_inverse_multi;
 use crate::serialize::{decode_varint, unpack_subband, unpack_ll_subband};
-use crate::subband_coder::decode_subband;
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 
@@ -325,6 +324,13 @@ fn decompress_dwt_ans(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, S
     let num_channels = sdat_payload[2] as usize;
     let _ll_pred     = sdat_payload[3]; // Paeth (4), reserved
     let use_rct      = ct_byte == 1;
+    let compressed   = &sdat_payload[4..];
+
+    // Zlib decompress
+    let mut decoder = ZlibDecoder::new(compressed);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)
+        .map_err(|_| SigilError::TruncatedInput)?;
 
     let w = header.width  as usize;
     let h = header.height as usize;
@@ -347,44 +353,28 @@ fn decompress_dwt_ans(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, S
         raw
     };
 
-    let (ll_w, ll_h) = if level_sizes.is_empty() {
-        (w, h)
-    } else {
-        let (wl, hl, _, _) = level_sizes[0];
-        (wl, hl)
-    };
-
-    let mut offset = 4usize;
+    let mut offset = 0usize;
     let mut channels_i32: Vec<Vec<i32>> = Vec::with_capacity(num_channels);
 
     for _ in 0..num_channels {
-        // Read LL blob
-        let ll_blob_size = decode_varint(sdat_payload, &mut offset) as usize;
-        let ll_blob = &sdat_payload[offset..offset + ll_blob_size];
-        offset += ll_blob_size;
+        // Read explicit LL dimensions
+        let ll_w = decode_varint(&decompressed, &mut offset) as usize;
+        let ll_h = decode_varint(&decompressed, &mut offset) as usize;
         let ll_count = ll_w * ll_h;
-        let ll_residuals = decode_subband(ll_blob, ll_count);
+
+        // Decode LL sub-band (varint), then inverse Paeth
+        let ll_residuals = unpack_subband(&decompressed, &mut offset, ll_count);
         let final_ll = unpred_paeth_ll(&ll_residuals, ll_w, ll_h);
 
-        // Read detail blobs
+        // Read detail sub-bands (same varint decoding as DwtLosslessVarint)
         let mut levels: Vec<(Vec<i32>, Vec<i32>, Vec<i32>)> = Vec::with_capacity(num_levels);
         for &(w_low, h_low, w_high, h_high) in &level_sizes {
             let lh_count = h_low  * w_high;
             let hl_count = h_high * w_low;
             let hh_count = h_high * w_high;
-
-            let lh_size = decode_varint(sdat_payload, &mut offset) as usize;
-            let lh = decode_subband(&sdat_payload[offset..offset + lh_size], lh_count);
-            offset += lh_size;
-
-            let hl_size = decode_varint(sdat_payload, &mut offset) as usize;
-            let hl = decode_subband(&sdat_payload[offset..offset + hl_size], hl_count);
-            offset += hl_size;
-
-            let hh_size = decode_varint(sdat_payload, &mut offset) as usize;
-            let hh = decode_subband(&sdat_payload[offset..offset + hh_size], hh_count);
-            offset += hh_size;
-
+            let lh = unpack_subband(&decompressed, &mut offset, lh_count);
+            let hl = unpack_subband(&decompressed, &mut offset, hl_count);
+            let hh = unpack_subband(&decompressed, &mut offset, hh_count);
             levels.push((lh, hl, hh));
         }
 

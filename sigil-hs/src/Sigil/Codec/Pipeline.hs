@@ -27,7 +27,6 @@ import Sigil.Codec.ColorTransform (forwardRCT, inverseRCT)
 import Sigil.Codec.Wavelet (computeLevels)
 import Sigil.Codec.WaveletMut (dwtForwardMultiMut, dwtInverseMultiMut)
 import Sigil.Codec.Serialize (packSubband, unpackSubband, packLLSubband, unpackLLSubband, encodeVarint, decodeVarint)
-import Sigil.Codec.SubbandCoder (encodeSubband, decodeSubband)
 
 ------------------------------------------------------------------------
 -- SDAT payload format (DwtLossless):
@@ -59,10 +58,11 @@ compress hdr img =
       numCh  = fromIntegral (length int32Channels) :: Word8
   in case compressionMethod hdr of
        DwtANS ->
-         -- ANS-coded path: no zlib, 4-byte header, per-sub-band ANS
-         let coeffBytes = serializeAllChannelsANS numLevels w h int32Channels
-             llPred = 1 :: Word8  -- 1 = Paeth prediction on LL
-         in BS.pack [fromIntegral numLevels, ctByte, numCh, llPred] <> coeffBytes
+         -- Paeth LL prediction + varint + zlib
+         let coeffBytes = serializeAllChannelsPaethVarint numLevels w h int32Channels
+             compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+             llPred = 4 :: Word8  -- Paeth
+         in BS.pack [fromIntegral numLevels, ctByte, numCh, llPred] <> compressed
        _ ->
          -- Legacy zlib path (DwtLossless / DwtLosslessVarint)
          let coeffBytes = case compressionMethod hdr of
@@ -118,16 +118,16 @@ compressWithProgress report hdr img = do
                          ((lw, lh, _, _) : _) -> (lw, lh)
           coeffBytes = BS.concat $ map (\(finalLL, levels) ->
             let llResiduals = predictLL llW llH finalLL
-                llBlob      = encodeSubband llResiduals
-                detailBlobs = concatMap (\(lh, hl, hh) ->
-                  [encodeSubband lh, encodeSubband hl, encodeSubband hh]) levels
-                allBlobs    = llBlob : detailBlobs
-            in BS.concat $ map (\blob ->
-                 encodeVarint (fromIntegral (BS.length blob)) <> blob) allBlobs
+                dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
+                llBytes = packSubband llResiduals
+                detailBytes = concatMap (\(lh, hl, hh) ->
+                  [packSubband lh, packSubband hl, packSubband hh]) levels
+            in BS.concat (dimBytes : llBytes : detailBytes)
             ) dwtResults
           llPred = 4 :: Word8  -- Paeth
       report "compress" 90 Nothing
-      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte, llPred] <> coeffBytes
+      let compressed = BL.toStrict $ Z.compress $ BL.fromStrict coeffBytes
+      pure $ BS.pack [fromIntegral numLevels, ctByte, numChByte, llPred] <> compressed
     _ -> do
       let coeffBytes = case compressionMethod hdr of
             DwtLosslessVarint ->
@@ -400,17 +400,17 @@ serializeAllChannelsVarint numLevels w h chans =
   BS.concat $ map (serializeChannelVarint numLevels w h) chans
 
 ------------------------------------------------------------------------
--- DwtANS serialization (v0.8)
+-- DwtANS serialization (v0.8) — Paeth LL + varint + zlib
 ------------------------------------------------------------------------
 
--- | Serialize all channels using ANS sub-band coding.
-serializeAllChannelsANS :: Int -> Int -> Int -> [Vector Int32] -> ByteString
-serializeAllChannelsANS numLevels w h chans =
-  BS.concat $ map (serializeChannelANS numLevels w h) chans
+-- | Serialize all channels with Paeth-predicted LL using varint packing.
+serializeAllChannelsPaethVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannelsPaethVarint numLevels w h chans =
+  BS.concat $ map (serializeChannelPaethVarint numLevels w h) chans
 
--- | Serialize a single channel: DWT, Paeth-predict LL, ANS-encode each sub-band.
-serializeChannelANS :: Int -> Int -> Int -> Vector Int32 -> ByteString
-serializeChannelANS numLevels w h chan =
+-- | Serialize a single channel: DWT, Paeth-predict LL, varint-encode.
+serializeChannelPaethVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannelPaethVarint numLevels w h chan =
   let chanU = VU.convert chan :: VU.Vector Int32
       (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
       finalLL = V.convert finalLLU :: Vector Int32
@@ -419,67 +419,20 @@ serializeChannelANS numLevels w h chan =
       (llW, llH) = case levelSizes of
                      [] -> (w, h)
                      ((lw, lh, _, _) : _) -> (lw, lh)
+      -- Paeth-predict the LL sub-band, then varint-encode
       llResiduals = predictLL llW llH finalLL
-      llBlob = encodeSubband llResiduals
-      detailBlobs = concatMap (\(lh, hl, hh) ->
-        [encodeSubband lh, encodeSubband hl, encodeSubband hh]) levels
-      allBlobs = llBlob : detailBlobs
-      packed = BS.concat $ map (\blob ->
-        encodeVarint (fromIntegral (BS.length blob)) <> blob) allBlobs
-  in packed
+      dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
+      llBytes = packSubband llResiduals
+      -- Detail sub-bands: varint-encode directly (same as DwtLosslessVarint)
+      levelBytes = concatMap (\(lh, hl, hh) ->
+        [packSubband lh, packSubband hl, packSubband hh]) levels
+  in BS.concat (dimBytes : llBytes : levelBytes)
 
 ------------------------------------------------------------------------
--- DwtANS deserialization (v0.8)
+-- DwtANS deserialization (v0.8) — Paeth LL + varint + zlib
 ------------------------------------------------------------------------
 
--- | Deserialize all channels from ANS-coded bytes.
-deserializeAllChannelsANS' :: Int -> Int -> Int -> Int -> [(Int,Int,Int,Int)] -> Int -> ByteString -> ([Vector Int32], ByteString)
-deserializeAllChannelsANS' _ _ _ _ _ 0 bs = ([], bs)
-deserializeAllChannelsANS' w h llW llH levelSizes n bs =
-  let (chan, rest) = deserializeChannelANS w h llW llH levelSizes bs
-      (chans, rest') = deserializeAllChannelsANS' w h llW llH levelSizes (n-1) rest
-  in (chan : chans, rest')
-
--- | Deserialize a single channel from ANS-coded bytes, apply inverse Paeth + inverse DWT.
-deserializeChannelANS :: Int -> Int -> Int -> Int -> [(Int,Int,Int,Int)] -> ByteString -> (Vector Int32, ByteString)
-deserializeChannelANS w h llW llH levelSizes bs0 =
-  let numLevels = length levelSizes
-      (llBlobSize32, bs1) = decodeVarint bs0
-      llBlobSize = fromIntegral llBlobSize32 :: Int
-      (llBlob, bs2) = (BS.take llBlobSize bs1, BS.drop llBlobSize bs1)
-      llCount = llW * llH
-      llResiduals = decodeSubband llCount llBlob
-      finalLL = unpredictLL llW llH llResiduals
-      (levels, bsRest) = readDetailBlobsANS levelSizes bs2
-      finalLLU = VU.convert finalLL :: VU.Vector Int32
-      levelsU = map (\(a,b,c') -> (VU.convert a, VU.convert b, VU.convert c')) levels
-      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
-      reconstructed = V.convert reconstructedU :: Vector Int32
-  in (reconstructed, bsRest)
-
--- | Read ANS-coded detail sub-band blobs for each level.
-readDetailBlobsANS :: [(Int,Int,Int,Int)] -> ByteString -> ([(Vector Int32, Vector Int32, Vector Int32)], ByteString)
-readDetailBlobsANS [] bs = ([], bs)
-readDetailBlobsANS ((wLow, hLow, wHigh, hHigh) : rest) bs =
-  let lhCount = hLow * wHigh
-      hlCount = hHigh * wLow
-      hhCount = hHigh * wHigh
-      (lhSize32, bs1) = decodeVarint bs
-      lhSize = fromIntegral lhSize32 :: Int
-      (lhBlob, bs2) = (BS.take lhSize bs1, BS.drop lhSize bs1)
-      lh = decodeSubband lhCount lhBlob
-      (hlSize32, bs3) = decodeVarint bs2
-      hlSize = fromIntegral hlSize32 :: Int
-      (hlBlob, bs4) = (BS.take hlSize bs3, BS.drop hlSize bs3)
-      hl = decodeSubband hlCount hlBlob
-      (hhSize32, bs5) = decodeVarint bs4
-      hhSize = fromIntegral hhSize32 :: Int
-      (hhBlob, bs6) = (BS.take hhSize bs5, BS.drop hhSize bs5)
-      hh = decodeSubband hhCount hhBlob
-      (restLevels, bsFinal) = readDetailBlobsANS rest bs6
-  in ((lh, hl, hh) : restLevels, bsFinal)
-
--- | Decompress a DwtANS payload.
+-- | Decompress a DwtANS payload (Paeth LL + varint + zlib).
 decompressDwtANS :: Header -> ByteString -> Either SigilError Image
 decompressDwtANS hdr bs
   | BS.length bs < 4 = Left TruncatedInput
@@ -491,17 +444,45 @@ decompressDwtANS hdr bs
         numCh     = fromIntegral (BS.index bs 2) :: Int
         _llPred   = BS.index bs 3
         useRCT    = ctByte == 1
-        payload   = BS.drop 4 bs
-        levelSizes = computeLevelSizes numLevels w h
-        (llW, llH) = case levelSizes of
-                       [] -> (w, h)
-                       ((lw, lh, _, _) : _) -> (lw, lh)
-        (int32Channels, _) = deserializeAllChannelsANS' w h llW llH levelSizes numCh payload
+        compressedData = BS.drop 4 bs
+        decompressed = BL.toStrict $ Z.decompress $ BL.fromStrict compressedData
+        int32Channels = deserializeAllChannelsPaethVarint numLevels w h numCh decompressed
         word8Channels = fromInt32Channels (colorSpace hdr) w h useRCT int32Channels
         ch = channels (colorSpace hdr)
         interleaved = interleaveChannels word8Channels (w * ch)
         rows = V.fromList [ V.slice (y * w * ch) (w * ch) interleaved | y <- [0 .. h - 1] ]
     in Right rows
+
+-- | Deserialize all channels from Paeth+varint encoded bytes.
+deserializeAllChannelsPaethVarint :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannelsPaethVarint numLevels w h numCh bs0 = go numCh bs0
+  where
+    go 0 _ = []
+    go n remaining =
+      let (chan, rest) = deserializeChannelPaethVarint numLevels w h remaining
+      in chan : go (n - 1) rest
+
+-- | Deserialize one channel: read LL dims, varint decode, inverse Paeth on LL, inverse DWT.
+deserializeChannelPaethVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannelPaethVarint numLevels w h bs0 =
+  let levelSizes = computeLevelSizes numLevels w h
+      -- Read explicit LL dimensions
+      (llW32, bs1) = decodeVarint bs0
+      (llH32, bs2) = decodeVarint bs1
+      llW = fromIntegral llW32 :: Int
+      llH = fromIntegral llH32 :: Int
+      llCount = llW * llH
+      -- Decode LL sub-band (varint), then inverse Paeth
+      (llResiduals, bs3) = unpackSubband llCount bs2
+      finalLL = unpredictLL llW llH (V.convert llResiduals)
+      -- Decode detail sub-bands (same as DwtLosslessVarint)
+      (levels, bsRest) = readLevelsVarint levelSizes bs3
+      -- Inverse DWT
+      finalLLU = VU.convert finalLL :: VU.Vector Int32
+      levelsU = map (\(a,b,c') -> (VU.convert a, VU.convert b, VU.convert c')) levels
+      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
+      reconstructed = V.convert reconstructedU :: Vector Int32
+  in (reconstructed, bsRest)
 
 -- | Deserialize a single channel from varint-packed bytes, apply inverse DWT.
 deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
