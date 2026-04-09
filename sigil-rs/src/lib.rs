@@ -20,6 +20,9 @@ mod reader;
 pub mod wavelet;
 pub mod color_transform;
 mod serialize;
+mod ans;
+mod mag_class;
+mod subband_coder;
 
 pub use types::{Header, ColorSpace, BitDepth, PredictorId, CompressionMethod};
 pub use error::SigilError;
