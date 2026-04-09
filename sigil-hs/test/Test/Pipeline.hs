@@ -47,3 +47,12 @@ spec = describe "Pipeline" $ do
               encoded = compress hdr img
               decoded = decompress hdr encoded
           in decoded === Right img
+
+  it "DwtANS round-trip for small RGB image" $ property $
+    forAll (choose (2, 16 :: Word32)) $ \w ->
+      forAll (choose (2, 16 :: Word32)) $ \h ->
+        forAll (arbitraryImage w h 3) $ \img ->
+          let hdr = Header w h RGB Depth8 DwtANS
+              encoded = compress hdr img
+              decoded = decompress hdr encoded
+          in decoded === Right img
