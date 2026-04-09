@@ -59,7 +59,9 @@ fn bit_depth_num(bd: sigil_decode::BitDepth) -> u8 {
 
 fn compression_method_str(cm: sigil_decode::CompressionMethod) -> &'static str {
     match cm {
-        sigil_decode::CompressionMethod::Legacy      => "legacy",
-        sigil_decode::CompressionMethod::DwtLossless => "dwt-lossless",
+        sigil_decode::CompressionMethod::Legacy            => "legacy",
+        sigil_decode::CompressionMethod::DwtLossless       => "dwt-lossless",
+        sigil_decode::CompressionMethod::DwtLosslessVarint => "dwt-lossless-varint",
+        sigil_decode::CompressionMethod::DwtANS            => "dwt-ans",
     }
 }
