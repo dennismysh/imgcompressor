@@ -3,6 +3,7 @@ use crate::types::{Header, CompressionMethod, ColorSpace};
 use crate::color_transform::inverse_rct;
 use crate::wavelet::dwt_inverse_multi;
 use crate::serialize::{decode_varint, unpack_subband, unpack_ll_subband};
+use crate::subband_coder::decode_subband;
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 
@@ -12,7 +13,7 @@ pub fn decompress(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, Sigil
         CompressionMethod::Legacy            => decompress_legacy(header, sdat_payload),
         CompressionMethod::DwtLossless       => decompress_dwt(header, sdat_payload),
         CompressionMethod::DwtLosslessVarint => decompress_dwt_varint(header, sdat_payload),
-        CompressionMethod::DwtANS            => Err(SigilError::UnsupportedCompressionMethod(3)),
+        CompressionMethod::DwtANS            => decompress_dwt_ans(header, sdat_payload),
     }
 }
 
@@ -308,4 +309,137 @@ fn interleave_channels(channels: &[Vec<i32>], w: usize, h: usize) -> Vec<u8> {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// DWT + ANS path (v0.8)
+// ---------------------------------------------------------------------------
+
+fn decompress_dwt_ans(header: &Header, sdat_payload: &[u8]) -> Result<Vec<u8>, SigilError> {
+    if sdat_payload.len() < 4 {
+        return Err(SigilError::TruncatedInput);
+    }
+
+    let num_levels   = sdat_payload[0] as usize;
+    let ct_byte      = sdat_payload[1];
+    let num_channels = sdat_payload[2] as usize;
+    let _ll_pred     = sdat_payload[3]; // Paeth (4), reserved
+    let use_rct      = ct_byte == 1;
+
+    let w = header.width  as usize;
+    let h = header.height as usize;
+
+    // Compute level sizes (deepest-first)
+    let level_sizes: Vec<(usize, usize, usize, usize)> = {
+        let mut raw = Vec::with_capacity(num_levels);
+        let mut cw = w;
+        let mut ch = h;
+        for _ in 0..num_levels {
+            let w_low  = (cw + 1) / 2;
+            let w_high = cw / 2;
+            let h_low  = (ch + 1) / 2;
+            let h_high = ch / 2;
+            raw.push((w_low, h_low, w_high, h_high));
+            cw = w_low;
+            ch = h_low;
+        }
+        raw.reverse();
+        raw
+    };
+
+    let (ll_w, ll_h) = if level_sizes.is_empty() {
+        (w, h)
+    } else {
+        let (wl, hl, _, _) = level_sizes[0];
+        (wl, hl)
+    };
+
+    let mut offset = 4usize;
+    let mut channels_i32: Vec<Vec<i32>> = Vec::with_capacity(num_channels);
+
+    for _ in 0..num_channels {
+        // Read LL blob
+        let ll_blob_size = decode_varint(sdat_payload, &mut offset) as usize;
+        let ll_blob = &sdat_payload[offset..offset + ll_blob_size];
+        offset += ll_blob_size;
+        let ll_count = ll_w * ll_h;
+        let ll_residuals = decode_subband(ll_blob, ll_count);
+        let final_ll = unpred_paeth_ll(&ll_residuals, ll_w, ll_h);
+
+        // Read detail blobs
+        let mut levels: Vec<(Vec<i32>, Vec<i32>, Vec<i32>)> = Vec::with_capacity(num_levels);
+        for &(w_low, h_low, w_high, h_high) in &level_sizes {
+            let lh_count = h_low  * w_high;
+            let hl_count = h_high * w_low;
+            let hh_count = h_high * w_high;
+
+            let lh_size = decode_varint(sdat_payload, &mut offset) as usize;
+            let lh = decode_subband(&sdat_payload[offset..offset + lh_size], lh_count);
+            offset += lh_size;
+
+            let hl_size = decode_varint(sdat_payload, &mut offset) as usize;
+            let hl = decode_subband(&sdat_payload[offset..offset + hl_size], hl_count);
+            offset += hl_size;
+
+            let hh_size = decode_varint(sdat_payload, &mut offset) as usize;
+            let hh = decode_subband(&sdat_payload[offset..offset + hh_size], hh_count);
+            offset += hh_size;
+
+            levels.push((lh, hl, hh));
+        }
+
+        let reconstructed = dwt_inverse_multi(&final_ll, &levels, w, h, num_levels);
+        channels_i32.push(reconstructed);
+    }
+
+    // Inverse color transform + interleave (same as other paths)
+    let pixels = if use_rct {
+        match header.color_space {
+            ColorSpace::Rgb => {
+                inverse_rct(w, h, &channels_i32[0], &channels_i32[1], &channels_i32[2])
+            }
+            ColorSpace::Rgba => {
+                let rgb = inverse_rct(w, h, &channels_i32[0], &channels_i32[1], &channels_i32[2]);
+                let n = w * h;
+                let mut rgba = Vec::with_capacity(n * 4);
+                for i in 0..n {
+                    rgba.push(rgb[i * 3]);
+                    rgba.push(rgb[i * 3 + 1]);
+                    rgba.push(rgb[i * 3 + 2]);
+                    rgba.push(channels_i32[3][i].clamp(0, 255) as u8);
+                }
+                rgba
+            }
+            _ => interleave_channels(&channels_i32, w, h),
+        }
+    } else {
+        interleave_channels(&channels_i32, w, h)
+    };
+
+    Ok(pixels)
+}
+
+/// Inverse Paeth prediction on LL residuals.
+fn unpred_paeth_ll(residuals: &[i32], w: usize, h: usize) -> Vec<i32> {
+    let mut out = vec![0i32; w * h];
+    for idx in 0..(w * h) {
+        let x = idx % w;
+        let y = idx / w;
+        let a = if x > 0 { out[idx - 1] } else { 0 };
+        let b = if y > 0 { out[idx - w] } else { 0 };
+        let c = if x > 0 && y > 0 { out[idx - w - 1] } else { 0 };
+        let predicted = paeth_i32(a, b, c);
+        out[idx] = residuals[idx] + predicted;
+    }
+    out
+}
+
+fn paeth_i32(a: i32, b: i32, c: i32) -> i32 {
+    let p = a + b - c;
+    let pa = (p - a).abs();
+    let pb = (p - b).abs();
+    let pc = (p - c).abs();
+    if pa <= pb && pa <= pc { a }
+    else if pb <= pc { b }
+    else { c }
 }
