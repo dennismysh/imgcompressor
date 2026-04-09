@@ -41,6 +41,7 @@ library:
     - Sigil.Codec.Wavelet
     - Sigil.Codec.WaveletMut
     - Sigil.Codec.Serialize
+    - Sigil.Codec.MagClass
   dependencies:
     - JuicyPixels >= 3.3
     - time >= 1.12
@@ -91,6 +92,7 @@ tests:
       - Test.ColorTransform
       - Test.Conformance
       - Test.Serialize
+      - Test.MagClass
     dependencies:
       - sigil-hs
       - hspec >= 2.11
