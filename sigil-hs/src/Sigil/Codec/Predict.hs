@@ -15,6 +15,7 @@ import Data.Ord (comparing)
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Sigil.Core.Types
 
@@ -41,28 +42,28 @@ paeth a b c =
 residual :: PredictorId -> Word8 -> Word8 -> Word8 -> Word8 -> Int16
 residual pid a b c x = fromIntegral x - fromIntegral (predict pid a b c)
 
-predictRow :: PredictorId -> Vector Word8 -> Vector Word8 -> Int -> Vector Int16
-predictRow pid prevRow curRow ch = V.imap go curRow
+predictRow :: PredictorId -> Row -> Row -> Int -> VU.Vector Int16
+predictRow pid prevRow curRow ch = VU.imap go curRow
   where
     go i x =
-      let a = if i >= ch then curRow V.! (i - ch) else 0
-          b = prevRow V.! i
-          c = if i >= ch then prevRow V.! (i - ch) else 0
+      let a = if i >= ch then curRow VU.! (i - ch) else 0
+          b = prevRow VU.! i
+          c = if i >= ch then prevRow VU.! (i - ch) else 0
       in residual pid a b c x
 
-unpredictRow :: PredictorId -> Vector Word8 -> Vector Int16 -> Int -> Vector Word8
+unpredictRow :: PredictorId -> Row -> VU.Vector Int16 -> Int -> Row
 unpredictRow pid prevRow residuals ch =
-  V.unfoldrExactN (V.length residuals) step (0, V.empty)
+  VU.unfoldrExactN (VU.length residuals) step (0, VU.empty)
   where
     step (i, built) =
-      let a = if i >= ch then built V.! (i - ch) else 0
-          b = prevRow V.! i
-          c = if i >= ch then prevRow V.! (i - ch) else 0
+      let a = if i >= ch then built VU.! (i - ch) else 0
+          b = prevRow VU.! i
+          c = if i >= ch then prevRow VU.! (i - ch) else 0
           predicted = predict pid a b c
-          x = fromIntegral (fromIntegral predicted + (residuals V.! i) :: Int16) :: Word8
-      in (x, (i + 1, V.snoc built x))
+          x = fromIntegral (fromIntegral predicted + (residuals VU.! i) :: Int16) :: Word8
+      in (x, (i + 1, VU.snoc built x))
 
-predictImage :: PredictorId -> Header -> Image -> (Vector PredictorId, Vector (Vector Int16))
+predictImage :: PredictorId -> Header -> Image -> (Vector PredictorId, Vector (VU.Vector Int16))
 predictImage pid hdr img
   | pid == PAdaptive =
       let results = V.imap (\i row ->
@@ -77,21 +78,21 @@ predictImage pid hdr img
   where
     ch = channels (colorSpace hdr)
     rl = fromIntegral (width hdr) * ch * bytesPerChannel (bitDepth hdr)
-    zeroRow = V.replicate rl 0
+    zeroRow = VU.replicate rl 0
 
-unpredictImage :: Header -> (Vector PredictorId, Vector (Vector Int16)) -> Image
+unpredictImage :: Header -> (Vector PredictorId, Vector (VU.Vector Int16)) -> Image
 unpredictImage hdr (pids, residuals) =
   V.unfoldrExactN (V.length residuals) step (0, V.empty)
   where
     ch = channels (colorSpace hdr)
     rl = fromIntegral (width hdr) * ch * bytesPerChannel (bitDepth hdr)
-    zeroRow = V.replicate rl 0
+    zeroRow = VU.replicate rl 0
     step (i, prevRows) =
       let prevRow = if i == 0 then zeroRow else prevRows V.! (i - 1)
           row = unpredictRow (pids V.! i) prevRow (residuals V.! i) ch
       in (row, (i + 1, V.snoc prevRows row))
 
-adaptiveRow :: Vector Word8 -> Vector Word8 -> Int -> (PredictorId, Vector Int16)
+adaptiveRow :: Row -> Row -> Int -> (PredictorId, VU.Vector Int16)
 adaptiveRow prevRow curRow ch =
   minimumBy (comparing cost) candidates
   where
@@ -99,4 +100,4 @@ adaptiveRow prevRow curRow ch =
       [ (pid, predictRow pid prevRow curRow ch)
       | pid <- [PNone .. PGradient]
       ]
-    cost (_, rs) = V.sum (V.map (fromIntegral . abs) rs :: Vector Int)
+    cost (_, rs) = VU.sum (VU.map (fromIntegral . abs) rs :: VU.Vector Int)

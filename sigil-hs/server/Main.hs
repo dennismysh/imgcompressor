@@ -5,6 +5,7 @@ import Web.Scotty
 import Network.Wai.Middleware.Cors (simpleCors)
 import Network.Wai.Handler.Warp (setPort, setTimeout, defaultSettings)
 import Network.HTTP.Types.Status (status400, status404)
+import Control.Monad (when)
 
 import qualified Codec.Picture as JP
 import qualified Data.ByteString.Lazy as BL
@@ -91,6 +92,12 @@ main = do
 
     post "/api/encode" $ do
       body' <- body
+      -- Reject uploads larger than 50MB to prevent OOM
+      let bodySize = BL.length body'
+      when (bodySize > 50 * 1024 * 1024) $ do
+        status status400
+        text "Image too large. Maximum upload size is 50MB."
+        finish
       sidHeader <- header "X-Session-Id"
       case JP.decodeImage (BL.toStrict body') of
         Left err -> do

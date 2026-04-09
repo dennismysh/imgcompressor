@@ -6,6 +6,7 @@ import Test.QuickCheck
 import Data.Int (Int16)
 import Data.Word (Word8)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Sigil.Codec.Predict
   ( predict, residual, paeth
@@ -43,8 +44,8 @@ spec = describe "Predict" $ do
     it "unpredictRow . predictRow == identity" $ property $
       forAll arbitraryFixedPredictor $ \pid ->
         forAll (choose (1 :: Int, 20)) $ \rowLen ->
-          forAll (V.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \row ->
-            let prevRow = V.replicate rowLen 0
+          forAll (VU.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \row ->
+            let prevRow = VU.replicate rowLen 0
                 ch = 1
                 residuals = predictRow pid prevRow row ch
                 recovered = unpredictRow pid prevRow residuals ch
@@ -64,13 +65,13 @@ spec = describe "Predict" $ do
   describe "adaptive" $ do
     it "adaptive picks the predictor with lowest cost" $ property $
       forAll (choose (3, 30)) $ \rowLen ->
-        forAll (V.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \row ->
-          forAll (V.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \prevRow ->
+        forAll (VU.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \row ->
+          forAll (VU.fromList <$> vectorOf rowLen (arbitrary :: Gen Word8)) $ \prevRow ->
             let ch = 1
                 (_, adaptiveResiduals) = adaptiveRow prevRow row ch
                 fixedCost pid =
                   let rs = predictRow pid prevRow row ch
-                  in sum (fmap (fromIntegral . abs) rs :: V.Vector Int)
-                adaptiveCost = sum (fmap (fromIntegral . abs) adaptiveResiduals :: V.Vector Int)
+                  in VU.sum (VU.map (fromIntegral . abs) rs :: VU.Vector Int)
+                adaptiveCost = VU.sum (VU.map (fromIntegral . abs) adaptiveResiduals :: VU.Vector Int)
                 bestFixedCost = minimum [fixedCost pid | pid <- [PNone .. PGradient]]
             in adaptiveCost <= bestFixedCost

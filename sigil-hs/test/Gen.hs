@@ -8,8 +8,8 @@ module Gen
 import Test.QuickCheck
 
 import Data.Word (Word8, Word32)
-import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Sigil.Core.Types (PredictorId(..), Image, Row)
 
@@ -17,7 +17,7 @@ arbitraryPixel :: Gen Word8
 arbitraryPixel = arbitrary
 
 arbitraryRow :: Int -> Gen Row
-arbitraryRow len = V.fromList <$> vectorOf len arbitraryPixel
+arbitraryRow len = VU.fromList <$> vectorOf len arbitraryPixel
 
 arbitraryImage :: Word32 -> Word32 -> Int -> Gen Image
 arbitraryImage w h ch =

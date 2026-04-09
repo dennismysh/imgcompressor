@@ -8,7 +8,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int32)
 import Data.List (foldl')
-import Data.Vector (Vector)
+import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word8, Word16, Word32)
 
 import Sigil.Codec.MagClass (encodeCoeffs, decodeCoeffs)
@@ -21,7 +21,7 @@ import Sigil.Codec.Serialize (encodeVarint, decodeVarint)
 --   [varint: rawBitCount]
 --   [ANS blob — self-delimiting, encodes magnitude classes]
 --   [raw bits — packed MSB-first, ceil(rawBitCount/8) bytes]
-encodeSubband :: Vector Int32 -> ByteString
+encodeSubband :: VU.Vector Int32 -> ByteString
 encodeSubband v =
   let (classes, rawBits) = encodeCoeffs v
       ansBlob   = ansEncode classes
@@ -31,7 +31,7 @@ encodeSubband v =
   in varint <> ansBlob <> rawBlob
 
 -- | Decode a blob produced by 'encodeSubband', given the number of coefficients.
-decodeSubband :: Int -> ByteString -> Vector Int32
+decodeSubband :: Int -> ByteString -> VU.Vector Int32
 decodeSubband 0 _ = mempty
 decodeSubband n bs =
   let (rawBitCount, afterVarint) = decodeVarint bs

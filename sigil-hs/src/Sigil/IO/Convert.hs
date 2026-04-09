@@ -21,6 +21,7 @@ import Codec.Picture
   )
 import qualified Codec.Picture as JP
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.Char (toLower)
@@ -68,7 +69,7 @@ loadRawImage path = do
             let hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtANS
                 stride = w * 3
                 rows = V.generate h $ \y ->
-                  V.fromList $ BS.unpack $ BS.take stride $ BS.drop (y * stride) pixels
+                  VU.fromList $ BS.unpack $ BS.take stride $ BS.drop (y * stride) pixels
             in pure $ Right (hdr, rows)
     Right _ -> pure $ Left $ IoError "failed to create dcraw process"
 
@@ -113,7 +114,7 @@ imageToSigil img =
       h = imageHeight img
       hdr = Header (fromIntegral w) (fromIntegral h) RGB Depth8 DwtANS
       rows = V.fromList
-        [ V.fromList
+        [ VU.fromList
             [ comp
             | x <- [0..w-1]
             , let PixelRGB8 r g b = pixelAt img x y
@@ -130,7 +131,7 @@ sigilToImage hdr img =
   in generateImage (\x y ->
     let row = img V.! y
         base = x * 3
-    in PixelRGB8 (row V.! base) (row V.! (base + 1)) (row V.! (base + 2))
+    in PixelRGB8 (row VU.! base) (row VU.! (base + 1)) (row VU.! (base + 2))
   ) w h
 
 imageToSigilRGBA :: JP.Image PixelRGBA8 -> (Header, Sigil.Core.Types.Image)
@@ -139,7 +140,7 @@ imageToSigilRGBA img =
       h = imageHeight img
       hdr = Header (fromIntegral w) (fromIntegral h) RGBA Depth8 DwtANS
       rows = V.fromList
-        [ V.fromList
+        [ VU.fromList
             [ comp
             | x <- [0..w-1]
             , let PixelRGBA8 r g b a = pixelAt img x y
@@ -156,7 +157,7 @@ sigilToImageRGBA hdr img =
   in generateImage (\x y ->
     let row = img V.! y
         base = x * 4
-    in PixelRGBA8 (row V.! base) (row V.! (base+1)) (row V.! (base+2)) (row V.! (base+3))
+    in PixelRGBA8 (row VU.! base) (row VU.! (base+1)) (row VU.! (base+2)) (row VU.! (base+3))
   ) w h
 
 imageToSigilGray :: JP.Image Pixel8 -> (Header, Sigil.Core.Types.Image)
@@ -165,7 +166,7 @@ imageToSigilGray img =
       h = imageHeight img
       hdr = Header (fromIntegral w) (fromIntegral h) Grayscale Depth8 DwtANS
       rows = V.fromList
-        [ V.fromList [ pixelAt img x y | x <- [0..w-1] ]
+        [ VU.fromList [ pixelAt img x y | x <- [0..w-1] ]
         | y <- [0..h-1]
         ]
   in (hdr, rows)
@@ -176,7 +177,7 @@ imageToSigilGrayAlpha img =
       h = imageHeight img
       hdr = Header (fromIntegral w) (fromIntegral h) GrayscaleAlpha Depth8 DwtANS
       rows = V.fromList
-        [ V.fromList
+        [ VU.fromList
             [ comp
             | x <- [0..w-1]
             , let JP.PixelYA8 y' a = pixelAt img x y
