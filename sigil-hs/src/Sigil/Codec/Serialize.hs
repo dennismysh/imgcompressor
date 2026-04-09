@@ -16,8 +16,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int32)
 import Data.Word (Word32)
-import Data.Vector (Vector)
-import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 -- | Zigzag-encode a signed Int32 to an unsigned Word32.
 -- Maps: 0->0, -1->1, 1->2, -2->3, 2->4, ...
@@ -53,42 +52,42 @@ decodeVarint = go 0 0
 
 -- | DPCM encode: per-row delta prediction.
 -- First value of each row is sent raw; subsequent values are (current - previous).
-dpcmEncode :: Int -> Vector Int32 -> Vector Int32
-dpcmEncode w v = V.generate (V.length v) $ \i ->
+dpcmEncode :: Int -> VU.Vector Int32 -> VU.Vector Int32
+dpcmEncode w v = VU.generate (VU.length v) $ \i ->
   if i `mod` w == 0
-    then v V.! i
-    else (v V.! i) - (v V.! (i - 1))
+    then v VU.! i
+    else (v VU.! i) - (v VU.! (i - 1))
 
 -- | Inverse DPCM: prefix-sum per row.
-dpcmDecode :: Int -> Vector Int32 -> Vector Int32
-dpcmDecode w v = V.generate (V.length v) $ \i ->
+dpcmDecode :: Int -> VU.Vector Int32 -> VU.Vector Int32
+dpcmDecode w v = VU.generate (VU.length v) $ \i ->
   if i `mod` w == 0
-    then v V.! i
+    then v VU.! i
     else go v w i
   where
     go vec width idx =
       let rowStart = (idx `div` width) * width
-      in V.foldl' (+) 0 (V.slice rowStart (idx - rowStart + 1) vec)
+      in VU.foldl' (+) 0 (VU.slice rowStart (idx - rowStart + 1) vec)
 
 -- | Pack a detail subband: zigzag each value, then varint-encode.
-packSubband :: Vector Int32 -> ByteString
-packSubband v = BS.concat $ map (encodeVarint . zigzag32) (V.toList v)
+packSubband :: VU.Vector Int32 -> ByteString
+packSubband v = BS.concat $ map (encodeVarint . zigzag32) (VU.toList v)
 
 -- | Unpack a detail subband: read `count` varint values, un-zigzag each.
-unpackSubband :: Int -> ByteString -> (Vector Int32, ByteString)
+unpackSubband :: Int -> ByteString -> (VU.Vector Int32, ByteString)
 unpackSubband count bs = go count bs []
   where
-    go 0 remaining acc = (V.fromList (reverse acc), remaining)
+    go 0 remaining acc = (VU.fromList (reverse acc), remaining)
     go n remaining acc =
       let (val, rest) = decodeVarint remaining
       in go (n - 1) rest (unzigzag32 val : acc)
 
 -- | Pack the LL subband: DPCM with given row width, then zigzag + varint.
-packLLSubband :: Int -> Vector Int32 -> ByteString
+packLLSubband :: Int -> VU.Vector Int32 -> ByteString
 packLLSubband w v = packSubband (dpcmEncode w v)
 
 -- | Unpack the LL subband: read varints, un-zigzag, inverse DPCM.
-unpackLLSubband :: Int -> Int -> ByteString -> (Vector Int32, ByteString)
+unpackLLSubband :: Int -> Int -> ByteString -> (VU.Vector Int32, ByteString)
 unpackLLSubband w count bs =
   let (dpcmed, rest) = unpackSubband count bs
   in (dpcmDecode w dpcmed, rest)

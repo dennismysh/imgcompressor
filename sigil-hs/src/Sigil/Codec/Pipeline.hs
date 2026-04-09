@@ -16,8 +16,8 @@ import qualified Data.Text as T
 import Data.Word (Word8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import qualified Codec.Compression.Zlib as Z
 
@@ -46,7 +46,7 @@ compress hdr img =
       h  = fromIntegral (height hdr) :: Int
       ch = channels (colorSpace hdr)
       -- Flatten all rows into a single byte vector
-      flat = V.concat (V.toList img)
+      flat = VU.concat (V.toList img)
       -- Deinterleave into per-channel vectors of Word8
       chanVecs = deinterleave flat ch
       -- Determine color transform and convert to Int32 channels
@@ -83,7 +83,7 @@ compressWithProgress report hdr img = do
       ch = channels (colorSpace hdr)
 
   report "decoding" 0 Nothing
-  let flat = V.concat (V.toList img)
+  let flat = VU.concat (V.toList img)
       chanVecs = deinterleave flat ch
 
   report "color_transform" 10 Nothing
@@ -98,10 +98,7 @@ compressWithProgress report hdr img = do
     [ do let basePct = 15 + i * pctPerChan
              detail = Just $ T.pack $ "channel " ++ show (i + 1) ++ "/" ++ show numCh
          report "dwt" basePct detail
-         let chanU = VU.convert c :: VU.Vector Int32
-             (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
-             finalLL = V.convert finalLLU :: Vector Int32
-             levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
+         let (finalLL, levels) = dwtForwardMultiMut numLevels w h c
          -- Force full evaluation so progress is meaningful
          pure $! force (finalLL, levels)
     | (i, c) <- zip [0..] int32Channels
@@ -174,7 +171,7 @@ decompress hdr bs
         ch = channels (colorSpace hdr)
         interleaved = interleaveChannels word8Channels (w * ch)
         -- Split into rows
-        rows = V.fromList [ V.slice (y * w * ch) (w * ch) interleaved
+        rows = V.fromList [ VU.slice (y * w * ch) (w * ch) interleaved
                           | y <- [0 .. h - 1] ]
     in Right rows
 
@@ -184,24 +181,24 @@ decompress hdr bs
 
 -- | Deinterleave a flat vector of interleaved pixel data into per-channel vectors.
 -- e.g., [R,G,B,R,G,B,...] -> [[R,R,...], [G,G,...], [B,B,...]]
-deinterleave :: Vector Word8 -> Int -> [Vector Word8]
+deinterleave :: VU.Vector Word8 -> Int -> [VU.Vector Word8]
 deinterleave flat ch =
-  [ V.generate npx (\i -> flat V.! (i * ch + c))
+  [ VU.generate npx (\i -> flat VU.! (i * ch + c))
   | c <- [0 .. ch - 1]
   ]
   where
-    npx = V.length flat `div` ch
+    npx = VU.length flat `div` ch
 
 -- | Interleave per-channel Word8 vectors back into flat interleaved data.
-interleaveChannels :: [Vector Word8] -> Int -> Vector Word8
-interleaveChannels [] _ = V.empty
+interleaveChannels :: [VU.Vector Word8] -> Int -> VU.Vector Word8
+interleaveChannels [] _ = VU.empty
 interleaveChannels chans _rowLen =
   let ch = length chans
-      npx = V.length (head chans)
-  in V.generate (npx * ch) $ \idx ->
+      npx = VU.length (head chans)
+  in VU.generate (npx * ch) $ \idx ->
        let i = idx `div` ch
            c = idx `mod` ch
-       in (chans !! c) V.! i
+       in (chans !! c) VU.! i
 
 ------------------------------------------------------------------------
 -- Color transform / Int32 conversion
@@ -209,8 +206,8 @@ interleaveChannels chans _rowLen =
 
 -- | Convert deinterleaved Word8 channels to Int32 channels,
 -- applying RCT if appropriate. Returns (usedRCT, int32Channels).
-toInt32Channels :: ColorSpace -> Int -> Int -> [Vector Word8]
-                -> (Bool, [Vector Int32])
+toInt32Channels :: ColorSpace -> Int -> Int -> [VU.Vector Word8]
+                -> (Bool, [VU.Vector Int32])
 toInt32Channels cs w h chanVecs = case cs of
   RGB ->
     let interleaved = interleaveRGB (chanVecs !! 0) (chanVecs !! 1) (chanVecs !! 2)
@@ -219,44 +216,44 @@ toInt32Channels cs w h chanVecs = case cs of
   RGBA ->
     let interleaved = interleaveRGB (chanVecs !! 0) (chanVecs !! 1) (chanVecs !! 2)
         (y', cb, cr) = forwardRCT w h interleaved
-        alpha = V.map fromIntegral (chanVecs !! 3) :: Vector Int32
+        alpha = VU.map fromIntegral (chanVecs !! 3) :: VU.Vector Int32
     in (True, [y', cb, cr, alpha])
   _ ->
     -- Grayscale, GrayscaleAlpha: just convert Word8 -> Int32
-    (False, map (V.map fromIntegral) chanVecs)
+    (False, map (VU.map fromIntegral) chanVecs)
 
 -- | Convert Int32 channels back to Word8 channels, applying inverse RCT if needed.
-fromInt32Channels :: ColorSpace -> Int -> Int -> Bool -> [Vector Int32]
-                  -> [Vector Word8]
+fromInt32Channels :: ColorSpace -> Int -> Int -> Bool -> [VU.Vector Int32]
+                  -> [VU.Vector Word8]
 fromInt32Channels cs w h useRCT int32Chans
   | useRCT = case cs of
       RGB ->
         let rgb = inverseRCT w h (int32Chans !! 0, int32Chans !! 1, int32Chans !! 2)
             npx = w * h
-        in [ V.generate npx (\i -> rgb V.! (i * 3 + c)) | c <- [0..2] ]
+        in [ VU.generate npx (\i -> rgb VU.! (i * 3 + c)) | c <- [0..2] ]
       RGBA ->
         let rgb = inverseRCT w h (int32Chans !! 0, int32Chans !! 1, int32Chans !! 2)
             npx = w * h
-            rgbChans = [ V.generate npx (\i -> rgb V.! (i * 3 + c)) | c <- [0..2] ]
-            alpha = V.map clampWord8 (int32Chans !! 3)
+            rgbChans = [ VU.generate npx (\i -> rgb VU.! (i * 3 + c)) | c <- [0..2] ]
+            alpha = VU.map clampWord8 (int32Chans !! 3)
         in rgbChans ++ [alpha]
       _ ->
         -- Shouldn't happen, but fallback
-        map (V.map clampWord8) int32Chans
+        map (VU.map clampWord8) int32Chans
   | otherwise =
-      map (V.map clampWord8) int32Chans
+      map (VU.map clampWord8) int32Chans
 
 -- | Interleave 3 separate channel vectors into a single RGB interleaved vector.
-interleaveRGB :: Vector Word8 -> Vector Word8 -> Vector Word8 -> Vector Word8
+interleaveRGB :: VU.Vector Word8 -> VU.Vector Word8 -> VU.Vector Word8 -> VU.Vector Word8
 interleaveRGB r g b =
-  let npx = V.length r
-  in V.generate (npx * 3) $ \idx ->
+  let npx = VU.length r
+  in VU.generate (npx * 3) $ \idx ->
        let i = idx `div` 3
            c = idx `mod` 3
        in case c of
-            0 -> r V.! i
-            1 -> g V.! i
-            _ -> b V.! i
+            0 -> r VU.! i
+            1 -> g VU.! i
+            _ -> b VU.! i
 
 clampWord8 :: Int32 -> Word8
 clampWord8 x
@@ -280,33 +277,33 @@ paethInt32 a b c =
      else c
 
 -- | Forward Paeth prediction on LL sub-band (returns residuals).
-predictLL :: Int -> Int -> Vector Int32 -> Vector Int32
-predictLL w h v = V.generate (w * h) $ \idx ->
+predictLL :: Int -> Int -> VU.Vector Int32 -> VU.Vector Int32
+predictLL w h v = VU.generate (w * h) $ \idx ->
   let x = idx `mod` w
       y = idx `div` w
-      cur = v V.! idx
-      a = if x > 0 then v V.! (idx - 1) else 0
-      b = if y > 0 then v V.! (idx - w) else 0
-      c = if x > 0 && y > 0 then v V.! (idx - w - 1) else 0
+      cur = v VU.! idx
+      a = if x > 0 then v VU.! (idx - 1) else 0
+      b = if y > 0 then v VU.! (idx - w) else 0
+      c = if x > 0 && y > 0 then v VU.! (idx - w - 1) else 0
       predicted = paethInt32 a b c
   in cur - predicted
 
 -- | Inverse Paeth prediction on LL residuals (returns original values).
 -- Must be sequential since each output depends on previous outputs.
-unpredictLL :: Int -> Int -> Vector Int32 -> Vector Int32
-unpredictLL w h residuals = V.create $ do
-  mv <- VM.new (w * h)
+unpredictLL :: Int -> Int -> VU.Vector Int32 -> VU.Vector Int32
+unpredictLL w h residuals = VU.create $ do
+  mv <- VUM.new (w * h)
   let go idx
         | idx >= w * h = pure ()
         | otherwise = do
             let x = idx `mod` w
                 y = idx `div` w
-            a <- if x > 0 then VM.read mv (idx - 1) else pure 0
-            b <- if y > 0 then VM.read mv (idx - w) else pure 0
-            c <- if x > 0 && y > 0 then VM.read mv (idx - w - 1) else pure 0
+            a <- if x > 0 then VUM.read mv (idx - 1) else pure 0
+            b <- if y > 0 then VUM.read mv (idx - w) else pure 0
+            c <- if x > 0 && y > 0 then VUM.read mv (idx - w - 1) else pure 0
             let predicted = paethInt32 a b c
-                val = (residuals V.! idx) + predicted
-            VM.write mv idx val
+                val = (residuals VU.! idx) + predicted
+            VUM.write mv idx val
             go (idx + 1)
   go 0
   pure mv
@@ -316,22 +313,19 @@ unpredictLL w h residuals = V.create $ do
 ------------------------------------------------------------------------
 
 -- | Apply DWT and serialize all channels into a single ByteString.
-serializeAllChannels :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannels :: Int -> Int -> Int -> [VU.Vector Int32] -> ByteString
 serializeAllChannels numLevels w h chans =
   BS.concat $ map (serializeChannel numLevels w h) chans
 
 -- | Apply forward DWT to a channel and serialize the coefficients.
-serializeChannel :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannel :: Int -> Int -> Int -> VU.Vector Int32 -> ByteString
 serializeChannel numLevels w h chan =
-  let chanU = VU.convert chan :: VU.Vector Int32
-      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
-      finalLL = V.convert finalLLU :: Vector Int32
-      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
+  let (finalLL, levels) = dwtForwardMultiMut numLevels w h chan
   in serializeCoeffs finalLL levels
 
 -- | Serialize wavelet coefficients:
 -- finalLL first, then levels deepest-first (LH, HL, HH per level).
-serializeCoeffs :: Vector Int32 -> [(Vector Int32, Vector Int32, Vector Int32)]
+serializeCoeffs :: VU.Vector Int32 -> [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)]
                 -> ByteString
 serializeCoeffs finalLL levels =
   let llBytes = packInt32Vec finalLL
@@ -341,8 +335,8 @@ serializeCoeffs finalLL levels =
 
 -- | Serialize wavelet coefficients using zigzag + varint packing.
 -- Per spec: writes [varint ll_width] [varint ll_height] before LL data.
-serializeCoeffsVarint :: Int -> Int -> Vector Int32
-                      -> [(Vector Int32, Vector Int32, Vector Int32)]
+serializeCoeffsVarint :: Int -> Int -> VU.Vector Int32
+                      -> [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)]
                       -> ByteString
 serializeCoeffsVarint llW llH finalLL levels =
   let dimBytes = encodeVarint (fromIntegral llW) <> encodeVarint (fromIntegral llH)
@@ -354,7 +348,7 @@ serializeCoeffsVarint llW llH finalLL levels =
 -- | Deserialize varint-packed wavelet coefficients.
 -- Per spec: reads [varint ll_width] [varint ll_height] before LL data.
 deserializeCoeffsVarint :: Int -> Int -> Int -> ByteString
-                        -> (Vector Int32, [(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+                        -> (VU.Vector Int32, [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)], ByteString)
 deserializeCoeffsVarint numLevels w h bs =
   let levelSizes = computeLevelSizes numLevels w h
       -- Read explicit LL dimensions from the stream
@@ -369,7 +363,7 @@ deserializeCoeffsVarint numLevels w h bs =
 
 -- | Read detail subbands using varint unpacking.
 readLevelsVarint :: [(Int, Int, Int, Int)] -> ByteString
-                 -> ([(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+                 -> ([(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)], ByteString)
 readLevelsVarint [] bs = ([], bs)
 readLevelsVarint ((wLow, hLow, wHigh, hHigh) : rest) bs =
   let lhCount = hLow * wHigh
@@ -382,12 +376,9 @@ readLevelsVarint ((wLow, hLow, wHigh, hHigh) : rest) bs =
   in ((lh, hl, hh) : restLevels, bsFinal)
 
 -- | Serialize a channel using varint packing (v0.6).
-serializeChannelVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannelVarint :: Int -> Int -> Int -> VU.Vector Int32 -> ByteString
 serializeChannelVarint numLevels w h chan =
-  let chanU = VU.convert chan :: VU.Vector Int32
-      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
-      finalLL = V.convert finalLLU :: Vector Int32
-      levels = map (\(a,b,c) -> (V.convert a, V.convert b, V.convert c)) levelsU
+  let (finalLL, levels) = dwtForwardMultiMut numLevels w h chan
       levelSizes = computeLevelSizes numLevels w h
       (llW, llH) = case levelSizes of
                      [] -> (w, h)
@@ -395,7 +386,7 @@ serializeChannelVarint numLevels w h chan =
   in serializeCoeffsVarint llW llH finalLL levels
 
 -- | Serialize all channels using varint packing (v0.6).
-serializeAllChannelsVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannelsVarint :: Int -> Int -> Int -> [VU.Vector Int32] -> ByteString
 serializeAllChannelsVarint numLevels w h chans =
   BS.concat $ map (serializeChannelVarint numLevels w h) chans
 
@@ -404,17 +395,14 @@ serializeAllChannelsVarint numLevels w h chans =
 ------------------------------------------------------------------------
 
 -- | Serialize all channels with Paeth-predicted LL using varint packing.
-serializeAllChannelsPaethVarint :: Int -> Int -> Int -> [Vector Int32] -> ByteString
+serializeAllChannelsPaethVarint :: Int -> Int -> Int -> [VU.Vector Int32] -> ByteString
 serializeAllChannelsPaethVarint numLevels w h chans =
   BS.concat $ map (serializeChannelPaethVarint numLevels w h) chans
 
 -- | Serialize a single channel: DWT, Paeth-predict LL, varint-encode.
-serializeChannelPaethVarint :: Int -> Int -> Int -> Vector Int32 -> ByteString
+serializeChannelPaethVarint :: Int -> Int -> Int -> VU.Vector Int32 -> ByteString
 serializeChannelPaethVarint numLevels w h chan =
-  let chanU = VU.convert chan :: VU.Vector Int32
-      (finalLLU, levelsU) = dwtForwardMultiMut numLevels w h chanU
-      finalLL = V.convert finalLLU :: Vector Int32
-      levels = map (\(a,b,c') -> (V.convert a, V.convert b, V.convert c')) levelsU
+  let (finalLL, levels) = dwtForwardMultiMut numLevels w h chan
       levelSizes = computeLevelSizes numLevels w h
       (llW, llH) = case levelSizes of
                      [] -> (w, h)
@@ -450,11 +438,11 @@ decompressDwtANS hdr bs
         word8Channels = fromInt32Channels (colorSpace hdr) w h useRCT int32Channels
         ch = channels (colorSpace hdr)
         interleaved = interleaveChannels word8Channels (w * ch)
-        rows = V.fromList [ V.slice (y * w * ch) (w * ch) interleaved | y <- [0 .. h - 1] ]
+        rows = V.fromList [ VU.slice (y * w * ch) (w * ch) interleaved | y <- [0 .. h - 1] ]
     in Right rows
 
 -- | Deserialize all channels from Paeth+varint encoded bytes.
-deserializeAllChannelsPaethVarint :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannelsPaethVarint :: Int -> Int -> Int -> Int -> ByteString -> [VU.Vector Int32]
 deserializeAllChannelsPaethVarint numLevels w h numCh bs0 = go numCh bs0
   where
     go 0 _ = []
@@ -463,7 +451,7 @@ deserializeAllChannelsPaethVarint numLevels w h numCh bs0 = go numCh bs0
       in chan : go (n - 1) rest
 
 -- | Deserialize one channel: read LL dims, varint decode, inverse Paeth on LL, inverse DWT.
-deserializeChannelPaethVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannelPaethVarint :: Int -> Int -> Int -> ByteString -> (VU.Vector Int32, ByteString)
 deserializeChannelPaethVarint numLevels w h bs0 =
   let levelSizes = computeLevelSizes numLevels w h
       -- Read explicit LL dimensions
@@ -474,28 +462,22 @@ deserializeChannelPaethVarint numLevels w h bs0 =
       llCount = llW * llH
       -- Decode LL sub-band (varint), then inverse Paeth
       (llResiduals, bs3) = unpackSubband llCount bs2
-      finalLL = unpredictLL llW llH (V.convert llResiduals)
+      finalLL = unpredictLL llW llH llResiduals
       -- Decode detail sub-bands (same as DwtLosslessVarint)
       (levels, bsRest) = readLevelsVarint levelSizes bs3
       -- Inverse DWT
-      finalLLU = VU.convert finalLL :: VU.Vector Int32
-      levelsU = map (\(a,b,c') -> (VU.convert a, VU.convert b, VU.convert c')) levels
-      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
-      reconstructed = V.convert reconstructedU :: Vector Int32
+      reconstructed = dwtInverseMultiMut numLevels w h finalLL levels
   in (reconstructed, bsRest)
 
 -- | Deserialize a single channel from varint-packed bytes, apply inverse DWT.
-deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannelVarint :: Int -> Int -> Int -> ByteString -> (VU.Vector Int32, ByteString)
 deserializeChannelVarint numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffsVarint numLevels w h bs
-      finalLLU = VU.convert finalLL :: VU.Vector Int32
-      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
-      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
-      reconstructed = V.convert reconstructedU :: Vector Int32
+      reconstructed = dwtInverseMultiMut numLevels w h finalLL levels
   in (reconstructed, remaining)
 
 -- | Deserialize all channels from varint-packed bytes.
-deserializeAllChannelsVarint :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannelsVarint :: Int -> Int -> Int -> Int -> ByteString -> [VU.Vector Int32]
 deserializeAllChannelsVarint numLevels w h numCh bs = go numCh bs
   where
     go 0 _ = []
@@ -504,7 +486,7 @@ deserializeAllChannelsVarint numLevels w h numCh bs = go numCh bs
       in chan : go (n - 1) rest
 
 -- | Deserialize all channels from a ByteString.
-deserializeAllChannels :: Int -> Int -> Int -> Int -> ByteString -> [Vector Int32]
+deserializeAllChannels :: Int -> Int -> Int -> Int -> ByteString -> [VU.Vector Int32]
 deserializeAllChannels numLevels w h numCh bs = go numCh bs
   where
     go 0 _ = []
@@ -513,19 +495,16 @@ deserializeAllChannels numLevels w h numCh bs = go numCh bs
       in chan : go (n - 1) rest
 
 -- | Deserialize a single channel: read coefficients, apply inverse DWT.
-deserializeChannel :: Int -> Int -> Int -> ByteString -> (Vector Int32, ByteString)
+deserializeChannel :: Int -> Int -> Int -> ByteString -> (VU.Vector Int32, ByteString)
 deserializeChannel numLevels w h bs =
   let (finalLL, levels, remaining) = deserializeCoeffs numLevels w h bs
-      finalLLU = VU.convert finalLL :: VU.Vector Int32
-      levelsU = map (\(a,b,c) -> (VU.convert a, VU.convert b, VU.convert c)) levels
-      reconstructedU = dwtInverseMultiMut numLevels w h finalLLU levelsU
-      reconstructed = V.convert reconstructedU :: Vector Int32
+      reconstructed = dwtInverseMultiMut numLevels w h finalLL levels
   in (reconstructed, remaining)
 
 -- | Deserialize wavelet coefficients from a ByteString.
 -- Returns (finalLL, levels deepest-first, remaining bytes).
 deserializeCoeffs :: Int -> Int -> Int -> ByteString
-                  -> (Vector Int32, [(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+                  -> (VU.Vector Int32, [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)], ByteString)
 deserializeCoeffs numLevels w h bs =
   let -- Compute the sizes at each level (deepest first)
       -- Each entry: (wLow, hLow, wHigh, hHigh) for that DWT level
@@ -561,7 +540,7 @@ computeLevelSizes numLevels w0 h0 = reverse $ go numLevels w0 h0
 
 -- | Read detail subbands for each level.
 readLevels :: [(Int, Int, Int, Int)] -> ByteString
-           -> ([(Vector Int32, Vector Int32, Vector Int32)], ByteString)
+           -> ([(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)], ByteString)
 readLevels [] bs = ([], bs)
 readLevels ((wLow, hLow, wHigh, hHigh) : rest) bs =
   let lhCount = hLow * wHigh
@@ -578,8 +557,8 @@ readLevels ((wLow, hLow, wHigh, hHigh) : rest) bs =
 ------------------------------------------------------------------------
 
 -- | Pack a vector of Int32 values as big-endian bytes.
-packInt32Vec :: Vector Int32 -> ByteString
-packInt32Vec v = BS.pack $ concatMap packInt32 (V.toList v)
+packInt32Vec :: VU.Vector Int32 -> ByteString
+packInt32Vec v = BS.pack $ concatMap packInt32 (VU.toList v)
 
 packInt32 :: Int32 -> [Word8]
 packInt32 x =
@@ -591,11 +570,11 @@ packInt32 x =
 
 -- | Unpack N Int32 values from a ByteString (big-endian).
 -- Returns (vector of Int32s, remaining bytes).
-unpackInt32N :: Int -> ByteString -> (Vector Int32, ByteString)
+unpackInt32N :: Int -> ByteString -> (VU.Vector Int32, ByteString)
 unpackInt32N n bs =
   let byteCount = n * 4
       (taken, rest) = BS.splitAt byteCount bs
-      vals = V.generate n $ \i ->
+      vals = VU.generate n $ \i ->
         let off = i * 4
             b0 = fromIntegral (BS.index taken off)       :: Int32
             b1 = fromIntegral (BS.index taken (off + 1)) :: Int32

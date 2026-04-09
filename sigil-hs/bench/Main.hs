@@ -8,6 +8,7 @@ import Data.Int (Int16)
 import Data.Word (Word8, Word16)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Sigil.Core.Types
 import Sigil.Core.Error (SigilError(..))
@@ -20,7 +21,7 @@ import Sigil.Codec.Pipeline (compress, decompress)
 -- Generate a synthetic gradient image
 makeGradient :: Int -> Int -> Image
 makeGradient w h = V.fromList
-  [ V.fromList
+  [ VU.fromList
       [ fromIntegral ((x * 3 + c + y) `mod` 256)
       | x <- [0..w-1], c <- [0..2]  -- RGB
       ]
@@ -30,7 +31,7 @@ makeGradient w h = V.fromList
 -- Generate a noise image (deterministic LCG)
 makeNoise :: Int -> Int -> Image
 makeNoise w h = V.fromList
-  [ V.fromList
+  [ VU.fromList
       [ fromIntegral (((y * w + x) * 3 + c) * 1103515245 + 12345 :: Int) `mod` 256
       | x <- [0..w-1], c <- [0..2]
       ]
@@ -39,12 +40,12 @@ makeNoise w h = V.fromList
 
 -- Generate flat image
 makeFlat :: Int -> Int -> Word8 -> Image
-makeFlat w h val = V.replicate h (V.replicate (w * 3) val)
+makeFlat w h val = V.replicate h (VU.replicate (w * 3) val)
 
 -- Generate checkerboard
 makeCheckerboard :: Int -> Int -> Image
 makeCheckerboard w h = V.fromList
-  [ V.fromList
+  [ VU.fromList
       [ let v = if (x `div` 8 + y `div` 8) `mod` 2 == 0 then 0 else 255
         in v
       | x <- [0..w-1], _ <- [0..2]

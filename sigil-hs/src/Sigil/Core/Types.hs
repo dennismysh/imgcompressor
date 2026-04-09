@@ -17,13 +17,16 @@ module Sigil.Core.Types
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
+import qualified Data.Vector.Unboxed as VU
 import Data.Vector (Vector)
 import Data.Word (Word8, Word32)
 
 -- | A row of interleaved channel samples: [r,g,b, r,g,b, ...]
-type Row = Vector Word8
+-- Uses unboxed vectors to avoid 24-byte-per-element GHC heap overhead.
+-- This reduces a 15MP RGB image from ~1GB to ~45MB in memory.
+type Row = VU.Vector Word8
 
--- | An image is a vector of rows.
+-- | An image is a vector of rows (boxed vector of unboxed rows).
 type Image = Vector Row
 
 data ColorSpace

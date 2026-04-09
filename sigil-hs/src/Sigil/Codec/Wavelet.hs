@@ -11,6 +11,7 @@ module Sigil.Codec.Wavelet
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 ------------------------------------------------------------------------
 -- 1D Le Gall 5/3 lifting
@@ -18,69 +19,69 @@ import qualified Data.Vector as V
 
 -- | Forward 1D integer 5/3 wavelet transform.
 -- Returns (approximation, detail) coefficients.
-lift53Forward1D :: Vector Int32 -> (Vector Int32, Vector Int32)
+lift53Forward1D :: VU.Vector Int32 -> (VU.Vector Int32, VU.Vector Int32)
 lift53Forward1D xs
-  | n == 0    = (V.empty, V.empty)
-  | n == 1    = (xs, V.empty)
+  | n == 0    = (VU.empty, VU.empty)
+  | n == 1    = (xs, VU.empty)
   | otherwise = (approx, detail)
   where
-    n = V.length xs
+    n = VU.length xs
     nDetail = n `div` 2
     nApprox = (n + 1) `div` 2
 
     -- Step 1: Predict (compute detail coefficients)
-    detail = V.generate nDetail $ \i ->
-      let left  = xs V.! (2 * i)
+    detail = VU.generate nDetail $ \i ->
+      let left  = xs VU.! (2 * i)
           right = if 2 * i + 2 < n
-                    then xs V.! (2 * i + 2)
-                    else xs V.! (2 * i)  -- mirror at right boundary
-      in xs V.! (2 * i + 1) - (left + right) `div` 2
+                    then xs VU.! (2 * i + 2)
+                    else xs VU.! (2 * i)  -- mirror at right boundary
+      in xs VU.! (2 * i + 1) - (left + right) `div` 2
 
     -- Step 2: Update (compute approximation coefficients)
-    approx = V.generate nApprox $ \i ->
-      let dLeft  = if i > 0       then detail V.! (i - 1)       else detail V.! 0
-          dRight = if i < nDetail  then detail V.! i             else detail V.! (nDetail - 1)
-      in xs V.! (2 * i) + (dLeft + dRight + 2) `div` 4
+    approx = VU.generate nApprox $ \i ->
+      let dLeft  = if i > 0       then detail VU.! (i - 1)       else detail VU.! 0
+          dRight = if i < nDetail  then detail VU.! i             else detail VU.! (nDetail - 1)
+      in xs VU.! (2 * i) + (dLeft + dRight + 2) `div` 4
 
 -- | Inverse 1D integer 5/3 wavelet transform.
 -- Takes approximation and detail coefficients, returns reconstructed signal.
-lift53Inverse1D :: Vector Int32 -> Vector Int32 -> Vector Int32
+lift53Inverse1D :: VU.Vector Int32 -> VU.Vector Int32 -> VU.Vector Int32
 lift53Inverse1D approx detail
-  | nApprox == 0 = V.empty
+  | nApprox == 0 = VU.empty
   | nDetail == 0 = approx  -- length 1: just the single sample
   | otherwise    = result
   where
-    nApprox = V.length approx
-    nDetail = V.length detail
+    nApprox = VU.length approx
+    nDetail = VU.length detail
     n       = nApprox + nDetail
 
     -- Step 1: Undo update (recover even samples)
-    evens = V.generate nApprox $ \i ->
-      let dLeft  = if i > 0       then detail V.! (i - 1)       else detail V.! 0
-          dRight = if i < nDetail  then detail V.! i             else detail V.! (nDetail - 1)
-      in approx V.! i - (dLeft + dRight + 2) `div` 4
+    evens = VU.generate nApprox $ \i ->
+      let dLeft  = if i > 0       then detail VU.! (i - 1)       else detail VU.! 0
+          dRight = if i < nDetail  then detail VU.! i             else detail VU.! (nDetail - 1)
+      in approx VU.! i - (dLeft + dRight + 2) `div` 4
 
     -- Step 2: Undo predict (recover odd samples)
-    result = V.generate n $ \idx ->
+    result = VU.generate n $ \idx ->
       if even idx
-        then evens V.! (idx `div` 2)
+        then evens VU.! (idx `div` 2)
         else
           let i     = idx `div` 2
-              left  = evens V.! i
+              left  = evens VU.! i
               right = if 2 * i + 2 < n
-                        then evens V.! (i + 1)
-                        else evens V.! i  -- mirror at right boundary
-          in detail V.! i + (left + right) `div` 2
+                        then evens VU.! (i + 1)
+                        else evens VU.! i  -- mirror at right boundary
+          in detail VU.! i + (left + right) `div` 2
 
 ------------------------------------------------------------------------
 -- 2D separable DWT
 ------------------------------------------------------------------------
 
 -- | Forward 2D DWT.
--- Takes width, height, and a flat row-major Vector Int32.
+-- Takes width, height, and a flat row-major VU.Vector Int32.
 -- Returns (LL, LH, HL, HH) subbands.
-dwt2DForward :: Int -> Int -> Vector Int32
-             -> (Vector Int32, Vector Int32, Vector Int32, Vector Int32)
+dwt2DForward :: Int -> Int -> VU.Vector Int32
+             -> (VU.Vector Int32, VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)
 dwt2DForward w h arr = (ll, lh, hl, hh)
   where
     -- Step 1: Transform rows
@@ -88,58 +89,59 @@ dwt2DForward w h arr = (ll, lh, hl, hh)
     wHigh = w `div` 2
 
     -- After row transform: width is wLow + wHigh = w, stored as [low|high] per row
-    rowTransformed = V.generate (h * w) $ \idx ->
+    rowTransformed = VU.generate (h * w) $ \idx ->
       let y   = idx `div` w
           x   = idx `mod` w
           row = extractRow arr w y
           (lo, hi) = lift53Forward1D row
       in if x < wLow
-           then lo V.! x
-           else hi V.! (x - wLow)
+           then lo VU.! x
+           else hi VU.! (x - wLow)
 
     -- Step 2: Transform columns of the row-transformed result
     hLow  = (h + 1) `div` 2
     hHigh = h `div` 2
 
     -- Extract a column from rowTransformed
-    getCol x = V.generate h $ \y -> rowTransformed V.! (y * w + x)
+    getCol x = VU.generate h $ \y -> rowTransformed VU.! (y * w + x)
 
-    -- Transform each column and store results
+    -- Transform each column and store results (boxed vector of unboxed pairs)
+    colResults :: Vector (VU.Vector Int32, VU.Vector Int32)
     colResults = V.generate w $ \x ->
       let col = getCol x
           (lo, hi) = lift53Forward1D col
       in (lo, hi)
 
     -- Reassemble into LL, LH, HL, HH
-    ll = V.generate (hLow * wLow) $ \idx ->
+    ll = VU.generate (hLow * wLow) $ \idx ->
       let y = idx `div` wLow
           x = idx `mod` wLow
           (lo, _) = colResults V.! x
-      in lo V.! y
+      in lo VU.! y
 
-    lh = V.generate (hLow * wHigh) $ \idx ->
+    lh = VU.generate (hLow * wHigh) $ \idx ->
       let y = idx `div` wHigh
           x = idx `mod` wHigh
           (lo, _) = colResults V.! (x + wLow)
-      in lo V.! y
+      in lo VU.! y
 
-    hl = V.generate (hHigh * wLow) $ \idx ->
+    hl = VU.generate (hHigh * wLow) $ \idx ->
       let y = idx `div` wLow
           x = idx `mod` wLow
           (_, hi) = colResults V.! x
-      in hi V.! y
+      in hi VU.! y
 
-    hh = V.generate (hHigh * wHigh) $ \idx ->
+    hh = VU.generate (hHigh * wHigh) $ \idx ->
       let y = idx `div` wHigh
           x = idx `mod` wHigh
           (_, hi) = colResults V.! (x + wLow)
-      in hi V.! y
+      in hi VU.! y
 
 -- | Inverse 2D DWT.
 -- Takes width, height, and (LL, LH, HL, HH) subbands.
--- Returns the reconstructed flat row-major Vector Int32.
-dwt2DInverse :: Int -> Int -> (Vector Int32, Vector Int32, Vector Int32, Vector Int32)
-             -> Vector Int32
+-- Returns the reconstructed flat row-major VU.Vector Int32.
+dwt2DInverse :: Int -> Int -> (VU.Vector Int32, VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)
+             -> VU.Vector Int32
 dwt2DInverse w h (ll, lh, hl, hh) = result
   where
     wLow  = (w + 1) `div` 2
@@ -148,38 +150,39 @@ dwt2DInverse w h (ll, lh, hl, hh) = result
     hHigh = h `div` 2
 
     -- Step 1: Inverse column transform
-    -- Reconstruct each column from its low and high parts
+    -- Reconstruct each column from its low and high parts (boxed vector of unboxed columns)
+    colReconstructed :: Vector (VU.Vector Int32)
     colReconstructed = V.generate w $ \x ->
       let (colLo, colHi) =
             if x < wLow
               then
                 -- Left half: low-pass columns — lows from LL, highs from HL
-                ( V.generate hLow  $ \y -> ll V.! (y * wLow + x)
-                , V.generate hHigh $ \y -> hl V.! (y * wLow + x)
+                ( VU.generate hLow  $ \y -> ll VU.! (y * wLow + x)
+                , VU.generate hHigh $ \y -> hl VU.! (y * wLow + x)
                 )
               else
                 -- Right half: high-pass columns — lows from LH, highs from HH
                 let x' = x - wLow
-                in ( V.generate hLow  $ \y -> lh V.! (y * wHigh + x')
-                   , V.generate hHigh $ \y -> hh V.! (y * wHigh + x')
+                in ( VU.generate hLow  $ \y -> lh VU.! (y * wHigh + x')
+                   , VU.generate hHigh $ \y -> hh VU.! (y * wHigh + x')
                    )
       in lift53Inverse1D colLo colHi
 
     -- After inverse column transform: h rows, each w wide,
     -- but stored as columns. Rearrange into row-major.
-    rowTransformed = V.generate (h * w) $ \idx ->
+    rowTransformed = VU.generate (h * w) $ \idx ->
       let y = idx `div` w
           x = idx `mod` w
-      in (colReconstructed V.! x) V.! y
+      in (colReconstructed V.! x) VU.! y
 
     -- Step 2: Inverse row transform
-    result = V.generate (h * w) $ \idx ->
+    result = VU.generate (h * w) $ \idx ->
       let y = idx `div` w
           x = idx `mod` w
-          rowLo = V.generate wLow  $ \i -> rowTransformed V.! (y * w + i)
-          rowHi = V.generate wHigh $ \i -> rowTransformed V.! (y * w + wLow + i)
+          rowLo = VU.generate wLow  $ \i -> rowTransformed VU.! (y * w + i)
+          rowHi = VU.generate wHigh $ \i -> rowTransformed VU.! (y * w + wLow + i)
           row   = lift53Inverse1D rowLo rowHi
-      in row V.! x
+      in row VU.! x
 
 ------------------------------------------------------------------------
 -- Multi-level DWT
@@ -187,8 +190,8 @@ dwt2DInverse w h (ll, lh, hl, hh) = result
 
 -- | Forward multi-level DWT.
 -- Returns (final_LL, [(LH, HL, HH) from deepest to shallowest]).
-dwtForwardMulti :: Int -> Int -> Int -> Vector Int32
-                -> (Vector Int32, [(Vector Int32, Vector Int32, Vector Int32)])
+dwtForwardMulti :: Int -> Int -> Int -> VU.Vector Int32
+                -> (VU.Vector Int32, [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)])
 dwtForwardMulti levels w h arr = go levels w h arr []
   where
     go 0 _ _ ll bands = (ll, bands)
@@ -201,9 +204,9 @@ dwtForwardMulti levels w h arr = go levels w h arr []
 -- | Inverse multi-level DWT.
 -- Takes the number of levels, original width, original height,
 -- the final LL subband, and the list of (LH, HL, HH) from deepest to shallowest.
-dwtInverseMulti :: Int -> Int -> Int -> Vector Int32
-                -> [(Vector Int32, Vector Int32, Vector Int32)]
-                -> Vector Int32
+dwtInverseMulti :: Int -> Int -> Int -> VU.Vector Int32
+                -> [(VU.Vector Int32, VU.Vector Int32, VU.Vector Int32)]
+                -> VU.Vector Int32
 dwtInverseMulti levels w h ll bands = go levels sizes ll bands
   where
     -- Compute the sizes at each level (from deepest to shallowest)
@@ -234,5 +237,5 @@ computeLevels w h
 -- Helpers
 ------------------------------------------------------------------------
 
-extractRow :: Vector Int32 -> Int -> Int -> Vector Int32
-extractRow arr w y = V.generate w $ \x -> arr V.! (y * w + x)
+extractRow :: VU.Vector Int32 -> Int -> Int -> VU.Vector Int32
+extractRow arr w y = VU.generate w $ \x -> arr VU.! (y * w + x)

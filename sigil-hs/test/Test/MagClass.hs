@@ -6,7 +6,7 @@ import Test.QuickCheck
 
 import Data.Int (Int32)
 import Data.Word (Word16)
-import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Sigil.Codec.MagClass
 
@@ -64,20 +64,20 @@ spec = describe "MagClass" $ do
 
   describe "encodeCoeffs / decodeCoeffs" $ do
     it "empty vector" $ do
-      let (classes, bits) = encodeCoeffs V.empty
+      let (classes, bits) = encodeCoeffs VU.empty
       classes `shouldBe` []
       bits `shouldBe` []
-      decodeCoeffs [] [] `shouldBe` V.empty
+      decodeCoeffs [] [] `shouldBe` VU.empty
 
     it "round-trip for known vector" $ do
-      let v = V.fromList [0, 5, -13, 1, -1, 0]
+      let v = VU.fromList [0, 5, -13, 1, -1, 0]
           (classes, bits) = encodeCoeffs v
           decoded = decodeCoeffs classes bits
       decoded `shouldBe` v
 
     it "QuickCheck: round-trip for arbitrary vectors" $ property $
       forAll (listOf (choose (-1000, 1000 :: Int32))) $ \xs ->
-        let v = V.fromList xs
+        let v = VU.fromList xs
             (classes, bits) = encodeCoeffs v
             decoded = decodeCoeffs classes bits
         in decoded === v
